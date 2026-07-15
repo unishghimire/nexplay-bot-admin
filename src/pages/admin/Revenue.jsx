@@ -1,198 +1,126 @@
-import React, { useState, useEffect, useCallback } from "react";
-import { base44 } from "@/api/base44Client";
-import PageHeader from "@/components/admin/PageHeader";
-import StatCard from "@/components/admin/StatCard";
-import StatusBadge from "@/components/admin/StatusBadge";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { DollarSign, Server as ServerIcon, Clock, AlertCircle } from "lucide-react";
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from "recharts";
+import React, { useState, useEffect } from "react";
+import { adminApi } from "@/lib/adminApi";
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
+import { RefreshCw, DollarSign, TrendingUp, CheckCircle, Clock } from "lucide-react";
+
+const CHART_COLORS = ["#6366f1","#a855f7","#f59e0b","#10b981","#ef4444","#06b6d4"];
 
 export default function Revenue() {
-  const [transactions, setTransactions] = useState([]);
-  const [servers, setServers] = useState([]);
-  const [plans, setPlans] = useState([]);
+  const [data, setData]     = useState(null);
   const [loading, setLoading] = useState(true);
-  const [statusFilter, setStatusFilter] = useState("all");
+  const [txFilter, setTxFilter] = useState("all");
 
-  const loadData = useCallback(async () => {
-    try {
-      const [txData, serverData, planData] = await Promise.all([
-        base44.entities.Transaction.list("-created_date", 500),
-        base44.entities.Server.list("-created_date", 500),
-        base44.entities.Plan.list("-created_date", 100),
-      ]);
-      setTransactions(txData);
-      setServers(serverData);
-      setPlans(planData);
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const load = async () => { setLoading(true); try { setData(await adminApi.revenue()); } catch(e){ console.error(e); } setLoading(false); };
+  useEffect(() => { load(); }, []);
 
-  useEffect(() => {
-    loadData();
-  }, [loadData]);
+  if (loading) return <div className="flex justify-center py-20"><div className="w-8 h-8 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin"/></div>;
+  if (!data) return null;
 
-  // Calculations for Stats Row
-  const approvedTx = transactions.filter((t) => t.status === "approved");
-  const pendingTx = transactions.filter((t) => t.status === "pending");
-  const activeServers = servers.filter((s) => s.subscription_status === "active");
-
-  const totalRevenue = approvedTx.reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
-  const mrr = activeServers.reduce((sum, s) => {
-    const plan = plans.find((p) => p.name?.toLowerCase() === s.plan_name?.toLowerCase());
-    return sum + (plan?.monthly_price || 0);
-  }, 0);
-
-  const pendingCount = pendingTx.length;
-  const pendingSum = pendingTx.reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
-
-  // Month-over-month calculation based on submitted_at date
-  const currentYear = new Date().getFullYear();
-  const currentMonth = new Date().getMonth(); // 0-11
-  const thisMonthRevenue = approvedTx.reduce((sum, t) => {
-    if (!t.submitted_at) return sum;
-    const date = new Date(t.submitted_at);
-    if (date.getFullYear() === currentYear && date.getMonth() === currentMonth) {
-      return sum + (Number(t.amount) || 0);
-    }
-    return sum;
-  }, 0);
-
-  // Revenue by Plan calculations
-  const revenueByPlan = plans.map((p) => {
-    const totalForPlan = approvedTx
-      .filter((t) => t.plan_name?.toLowerCase() === p.name?.toLowerCase())
-      .reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
-    return { name: p.name, amount: totalForPlan };
-  });
-
-  // Month-over-month chart processing
-  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-  const momData = months.map((m, index) => {
-    const sum = approvedTx.reduce((acc, t) => {
-      if (!t.submitted_at) return acc;
-      const date = new Date(t.submitted_at);
-      if (date.getMonth() === index && date.getFullYear() === 2026) {
-        return acc + (Number(t.amount) || 0);
-      }
-      return acc;
-    }, 0);
-    return { month: m, revenue: sum };
-  });
-
-  const filteredTransactions = transactions.filter((t) => {
-    return statusFilter === "all" || t.status === statusFilter;
-  });
-
-  const PLAN_COLORS = ["#10B981", "#3B82F6", "#8B5CF6", "#F59E0B"];
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-96">
-        <div className="w-8 h-8 border-4 border-gray-700 rounded-full animate-spin" style={{ borderTopColor: "#FFD700" }} />
-      </div>
-    );
-  }
+  const { total_revenue, mrr, transactions, monthly_revenue, revenue_by_plan } = data;
+  const approved = transactions.filter(t=>t.status==="approved");
+  const pending  = transactions.filter(t=>t.status==="pending");
+  const filtered = txFilter==="all" ? transactions : transactions.filter(t=>t.status===txFilter);
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Revenue & Transactions" subtitle="Detailed billing and cash-flow overview" />
-
-      {/* Stats Row */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard label="Total Revenue" value={`$${totalRevenue.toLocaleString()}`} icon={DollarSign} accent="gold" />
-        <StatCard label="MRR (Active Servers)" value={`$${mrr.toLocaleString()}`} icon={ServerIcon} accent="green" />
-        <StatCard label="Pending Transactions" value={`${pendingCount} ($${pendingSum})`} icon={AlertCircle} accent="red" />
-        <StatCard label="This Month Revenue" value={`$${thisMonthRevenue.toLocaleString()}`} icon={Clock} accent="purple" />
+      <div className="flex items-center justify-between">
+        <div><h1 className="text-2xl font-bold text-white">Revenue</h1><p className="text-gray-400 text-sm mt-1">Payment history & MRR tracking</p></div>
+        <button onClick={load} className="p-2 rounded-lg np-bg-card border np-border text-gray-400 hover:text-white transition-colors"><RefreshCw className="w-4 h-4"/></button>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Revenue by Plan Chart */}
-        <div className="np-bg-card rounded-xl border np-border p-6">
-          <h3 className="text-sm font-semibold text-white mb-4">Revenue by Subscription Plan</h3>
-          <ResponsiveContainer width="100%" height={260}>
-            <BarChart data={revenueByPlan}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#1f1f2e" />
-              <XAxis dataKey="name" stroke="#6b7280" />
-              <YAxis stroke="#6b7280" />
-              <Tooltip contentStyle={{ background: "#0a0a0f", border: "1px solid #2a2a44", color: "#fff" }} />
-              <Bar dataKey="amount" fill="#3B82F6" radius={[4, 4, 0, 0]}>
-                {revenueByPlan.map((entry, index) => (
-                  <Cell key={`cell-${index}`} fill={PLAN_COLORS[index % PLAN_COLORS.length]} />
+      {/* Stats */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        {[
+          {label:"Total Revenue",val:`NPR ${total_revenue.toLocaleString()}`,icon:DollarSign,color:"text-emerald-400"},
+          {label:"MRR",val:`NPR ${mrr.toLocaleString()}`,icon:TrendingUp,color:"text-indigo-400"},
+          {label:"Approved",val:approved.length,icon:CheckCircle,color:"text-emerald-400"},
+          {label:"Pending",val:pending.length,icon:Clock,color:"text-yellow-400"},
+        ].map(s=>(
+          <div key={s.label} className="np-bg-card border np-border rounded-xl p-4 flex items-center gap-3">
+            <s.icon className={`w-6 h-6 ${s.color} shrink-0`}/>
+            <div><p className="text-gray-500 text-xs">{s.label}</p><p className={`text-xl font-bold ${s.color}`}>{s.val}</p></div>
+          </div>
+        ))}
+      </div>
+
+      <div className="grid md:grid-cols-2 gap-5">
+        {/* Monthly Revenue */}
+        <div className="np-bg-card border np-border rounded-xl p-5">
+          <h2 className="text-white font-semibold mb-4">Monthly Revenue (NPR)</h2>
+          {monthly_revenue.length === 0 ? (
+            <p className="text-gray-500 text-sm text-center py-8">No approved payments yet</p>
+          ) : (
+            <ResponsiveContainer width="100%" height={200}>
+              <BarChart data={monthly_revenue} margin={{top:0,right:0,bottom:0,left:0}}>
+                <XAxis dataKey="month" tick={{fill:"#6b7280",fontSize:10}} axisLine={false} tickLine={false}/>
+                <YAxis tick={{fill:"#6b7280",fontSize:10}} axisLine={false} tickLine={false} width={50}/>
+                <Tooltip contentStyle={{background:"#1a1a2e",border:"1px solid rgba(255,255,255,0.1)",borderRadius:"8px",color:"#fff"}} formatter={v=>[`NPR ${v}`,""]}/>
+                <Bar dataKey="revenue" fill="#6366f1" radius={[4,4,0,0]}/>
+              </BarChart>
+            </ResponsiveContainer>
+          )}
+        </div>
+
+        {/* Revenue by Plan */}
+        <div className="np-bg-card border np-border rounded-xl p-5">
+          <h2 className="text-white font-semibold mb-4">Revenue by Plan</h2>
+          {revenue_by_plan.length === 0 ? (
+            <p className="text-gray-500 text-sm text-center py-8">No data yet</p>
+          ) : (
+            <>
+              <ResponsiveContainer width="100%" height={150}>
+                <PieChart>
+                  <Pie data={revenue_by_plan} dataKey="revenue" nameKey="plan" cx="50%" cy="50%" outerRadius={60}>
+                    {revenue_by_plan.map((_,i)=><Cell key={i} fill={CHART_COLORS[i%CHART_COLORS.length]}/>)}
+                  </Pie>
+                  <Tooltip contentStyle={{background:"#1a1a2e",border:"1px solid rgba(255,255,255,0.1)",borderRadius:"8px",color:"#fff"}} formatter={v=>[`NPR ${v}`,""]}/>
+                </PieChart>
+              </ResponsiveContainer>
+              <div className="grid grid-cols-2 gap-1.5 mt-2">
+                {revenue_by_plan.map((r,i)=>(
+                  <div key={r.plan} className="flex items-center gap-1.5 text-xs">
+                    <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{background:CHART_COLORS[i%CHART_COLORS.length]}}/>
+                    <span className="text-gray-400 truncate">{r.plan}</span>
+                    <span className="text-white font-semibold ml-auto">NPR {r.revenue}</span>
+                  </div>
                 ))}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-
-        {/* Month over Month Chart */}
-        <div className="np-bg-card rounded-xl border np-border p-6">
-          <h3 className="text-sm font-semibold text-white mb-4">Month-Over-Month Performance (2026)</h3>
-          <ResponsiveContainer width="100%" height={260}>
-            <BarChart data={momData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#1f1f2e" />
-              <XAxis dataKey="month" stroke="#6b7280" />
-              <YAxis stroke="#6b7280" />
-              <Tooltip contentStyle={{ background: "#0a0a0f", border: "1px solid #2a2a44", color: "#fff" }} />
-              <Bar dataKey="revenue" fill="#8B5CF6" radius={[4, 4, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
+              </div>
+            </>
+          )}
         </div>
       </div>
 
-      {/* Transaction History Table */}
-      <div className="np-bg-card rounded-xl border np-border overflow-hidden">
-        <div className="px-6 py-4 border-b np-border flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
-          <h3 className="text-sm font-semibold text-white">Transaction History</h3>
-          <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="w-full sm:w-48 np-bg-base border-np-border text-white">
-              <SelectValue placeholder="Filter by status" />
-            </SelectTrigger>
-            <SelectContent className="np-bg-card border-np-border">
-              <SelectItem value="all">All Statuses</SelectItem>
-              <SelectItem value="approved">Approved</SelectItem>
-              <SelectItem value="pending">Pending</SelectItem>
-              <SelectItem value="rejected">Rejected</SelectItem>
-            </SelectContent>
-          </Select>
+      {/* Transaction ledger */}
+      <div className="np-bg-card border np-border rounded-xl overflow-hidden">
+        <div className="px-5 py-4 border-b np-border flex items-center justify-between">
+          <h2 className="text-white font-semibold">All Transactions</h2>
+          <div className="flex gap-1.5">
+            {["all","approved","pending","rejected"].map(f=>(
+              <button key={f} onClick={()=>setTxFilter(f)} className={`px-2.5 py-1 rounded-lg text-xs capitalize transition-colors ${txFilter===f?"bg-indigo-600 text-white":"np-bg-base border np-border text-gray-400 hover:text-white"}`}>{f}</button>
+            ))}
+          </div>
         </div>
-
-        <div className="overflow-x-auto np-scroll">
+        <div className="overflow-x-auto">
           <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b np-border text-gray-500">
-                <th className="text-left px-4 py-3 font-semibold">Guild Name</th>
-                <th className="text-left px-4 py-3 font-semibold">Plan Name</th>
-                <th className="text-left px-4 py-3 font-semibold">Amount</th>
-                <th className="text-left px-4 py-3 font-semibold">Payment Method</th>
-                <th className="text-left px-4 py-3 font-semibold">Submitted Date</th>
-                <th className="text-left px-4 py-3 font-semibold">Status</th>
-              </tr>
-            </thead>
+            <thead><tr className="border-b np-border text-xs text-gray-500 uppercase">{["Server","Plan","Amount","Method","TX ID","Date","Status"].map(h=><th key={h} className="px-4 py-3 text-left font-medium whitespace-nowrap">{h}</th>)}</tr></thead>
             <tbody>
-              {filteredTransactions.map((t) => (
-                <tr key={t.id} className="border-b np-border hover:np-bg-card-hover transition-colors">
-                  <td className="px-4 py-3 font-medium text-white">{t.guild_name}</td>
-                  <td className="px-4 py-3 text-gray-300">{t.plan_name}</td>
-                  <td className="px-4 py-3 text-emerald-400 font-semibold">${t.amount}</td>
-                  <td className="px-4 py-3 text-gray-400 text-xs">{t.payment_method}</td>
-                  <td className="px-4 py-3 text-gray-500 text-xs">
-                    {t.submitted_at ? new Date(t.submitted_at).toLocaleDateString() : "—"}
-                  </td>
-                  <td className="px-4 py-3">
-                    <StatusBadge status={t.status} />
+              {filtered.length === 0 ? <tr><td colSpan={7} className="text-center py-10 text-gray-500">No transactions</td></tr>
+              : filtered.map(t=>(
+                <tr key={t.id} className="border-b np-border hover:bg-white/2 transition-colors">
+                  <td className="px-4 py-3 text-white font-medium whitespace-nowrap">{t.guild_name}</td>
+                  <td className="px-4 py-3 text-gray-300 whitespace-nowrap">{t.plan_name}</td>
+                  <td className="px-4 py-3 text-emerald-400 font-bold whitespace-nowrap">NPR {t.amount}</td>
+                  <td className="px-4 py-3 text-gray-400 whitespace-nowrap">{t.payment_method||"—"}</td>
+                  <td className="px-4 py-3 text-gray-500 font-mono text-xs whitespace-nowrap">{t.transaction_id}</td>
+                  <td className="px-4 py-3 text-gray-500 text-xs whitespace-nowrap">{t.submitted_at?new Date(t.submitted_at).toLocaleDateString():"—"}</td>
+                  <td className="px-4 py-3 whitespace-nowrap">
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border capitalize ${t.status==="approved"?"bg-emerald-500/15 text-emerald-400 border-emerald-500/30":t.status==="pending"?"bg-yellow-500/15 text-yellow-400 border-yellow-500/30":"bg-red-500/15 text-red-400 border-red-500/30"}`}>{t.status}</span>
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
-        {filteredTransactions.length === 0 && (
-          <div className="py-12 text-center text-gray-500 text-sm">No transactions found</div>
-        )}
       </div>
     </div>
   );

@@ -1,297 +1,147 @@
-import React, { useState, useEffect, useCallback } from "react";
-import { base44 } from "@/api/base44Client";
-import PageHeader from "@/components/admin/PageHeader";
-import StatusBadge from "@/components/admin/StatusBadge";
-import { Button } from "@/components/ui/button";
-import { toast } from "sonner";
-import { Check, Bell, Trash2, Mail, MessageSquare } from "lucide-react";
+import React, { useState, useEffect } from "react";
+import { adminApi } from "@/lib/adminApi";
+import { Bell, RefreshCw, CheckCheck, Trash2, AlertTriangle, Info, AlertCircle, MessageSquare, CheckCircle } from "lucide-react";
+
+const SEV = {
+  critical: { style:"bg-red-500/10 border-red-500/20 text-red-300", icon: AlertCircle, label:"Critical" },
+  warning:  { style:"bg-yellow-500/10 border-yellow-500/20 text-yellow-300", icon: AlertTriangle, label:"Warning" },
+  info:     { style:"bg-blue-500/10 border-blue-500/20 text-blue-300", icon: Info, label:"Info" },
+};
 
 export default function Notifications() {
-  const [notifications, setNotifications] = useState([]);
-  const [supportMessages, setSupportMessages] = useState([]);
+  const [notifs, setNotifs]   = useState([]);
+  const [msgs, setMsgs]       = useState([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState("all");
+  const [tab, setTab]         = useState("notifications");
+  const [saving, setSaving]   = useState(false);
 
-  const loadData = useCallback(async () => {
-    try {
-      const [notifsData, supportData] = await Promise.all([
-        base44.entities.AdminNotification.list("-created_date", 200),
-        base44.entities.SupportMessage.list("-created_date", 200)
-      ]);
-      setNotifications(notifsData);
-      setSupportMessages(supportData);
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const load = async () => {
+    setLoading(true);
+    try { const d=await adminApi.notifications(); setNotifs(d.notifications||[]); setMsgs(d.support_messages||[]); }
+    catch(e){ console.error(e); }
+    setLoading(false);
+  };
+  useEffect(()=>{ load(); },[]);
 
-  useEffect(() => {
-    loadData();
-    const unsubNotif = base44.entities.AdminNotification.subscribe(() => loadData());
-    const unsubSupport = base44.entities.SupportMessage.subscribe(() => loadData());
-    return () => {
-      if (unsubNotif) unsubNotif();
-      if (unsubSupport) unsubSupport();
-    };
-  }, [loadData]);
-
-  const markAsRead = async (id) => {
-    try {
-      await base44.entities.AdminNotification.update(id, { read_by_unish: true });
-      setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, read_by_unish: true } : n)));
-      toast.success("Marked as read");
-    } catch (e) {
-      toast.error("Failed to mark as read");
-    }
+  const markRead = async (id) => {
+    try { await adminApi.markRead(id); setNotifs(ns=>ns.map(n=>n.id===id?{...n,read_by_unish:true}:n)); }
+    catch(e){ console.error(e); }
   };
 
-  const markAllAsRead = async () => {
-    try {
-      const unread = notifications.filter((n) => !n.read_by_unish);
-      if (unread.length === 0) {
-        toast.info("No unread notifications");
-        return;
-      }
-      await Promise.all(
-        unread.map((n) => base44.entities.AdminNotification.update(n.id, { read_by_unish: true }))
-      );
-      setNotifications((prev) => prev.map((n) => ({ ...n, read_by_unish: true })));
-      toast.success("All notifications marked as read");
-    } catch (e) {
-      toast.error("Failed to mark all as read");
-    }
+  const markAll = async () => {
+    setSaving(true);
+    try { await adminApi.markAllRead(); setNotifs(ns=>ns.map(n=>({...n,read_by_unish:true}))); }
+    catch(e){ alert(e.message); }
+    setSaving(false);
   };
 
-  const deleteNotification = async (id) => {
-    try {
-      await base44.entities.AdminNotification.delete(id);
-      setNotifications((prev) => prev.filter((n) => n.id !== id));
-      toast.success("Notification deleted");
-    } catch (e) {
-      toast.error("Failed to delete notification");
-    }
+  const del = async (id) => {
+    try { await adminApi.deleteNotif(id); setNotifs(ns=>ns.filter(n=>n.id!==id)); }
+    catch(e){ console.error(e); }
   };
 
-  const resolveSupportMessage = async (id) => {
-    try {
-      await base44.entities.SupportMessage.update(id, { status: "resolved" });
-      setSupportMessages((prev) => prev.map((s) => (s.id === id ? { ...s, status: "resolved" } : s)));
-      toast.success("Support ticket marked as resolved");
-    } catch (e) {
-      toast.error("Failed to update support message");
-    }
+  const resolveSupport = async (id) => {
+    try { await adminApi.resolveSupport(id); setMsgs(ms=>ms.map(m=>m.id===id?{...m,status:"resolved"}:m)); }
+    catch(e){ console.error(e); }
   };
 
-  const viewNotification = async (n) => {
-    if (!n.read_by_unish) {
-      await markAsRead(n.id);
-    }
-  };
-
-  // Stats
-  const totalCount = notifications.length;
-  const unreadCount = notifications.filter((n) => !n.read_by_unish).length;
-  const criticalCount = notifications.filter((n) => n.severity === "critical").length;
-
-  // Filtering
-  const filteredNotifications = notifications.filter((n) => {
-    if (filter === "all") return true;
-    if (filter === "unread") return !n.read_by_unish;
-    if (filter === "critical") return n.severity === "critical";
-    if (filter === "info") return n.severity === "info";
-    if (filter === "warning") return n.severity === "warning";
-    return true;
-  });
-
-  const openSupportTickets = supportMessages.filter((s) => s.status === "open");
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-96">
-        <div className="w-8 h-8 border-4 border-gray-700 rounded-full animate-spin" style={{ borderTopColor: "#FFD700" }} />
-      </div>
-    );
-  }
+  const unread = notifs.filter(n=>!n.read_by_unish).length;
+  const openMsgs = msgs.filter(m=>m.status!=="resolved").length;
 
   return (
-    <div className="space-y-8">
-      <div>
-        <PageHeader
-          title="Notifications"
-          subtitle={`${unreadCount} unread of ${totalCount} total`}
-          actions={
-            <Button
-              onClick={markAllAsRead}
-              className="bg-zinc-800 text-white border border-zinc-700 hover:bg-zinc-700 transition-colors"
-            >
-              <Check className="w-4 h-4 mr-2" /> Mark All Read
-            </Button>
-          }
-        />
-
-        {/* Stats Summary Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-          <div className="np-bg-card rounded-xl border np-border p-4 flex items-center justify-between">
-            <div>
-              <p className="text-xs text-gray-500 font-semibold uppercase tracking-wider">Total Notifications</p>
-              <p className="text-2xl font-bold text-white mt-1">{totalCount}</p>
-            </div>
-            <div className="w-10 h-10 rounded-lg bg-zinc-800 flex items-center justify-center border np-border">
-              <Bell className="w-5 h-5 text-gray-400" />
-            </div>
-          </div>
-          <div className="np-bg-card rounded-xl border np-border p-4 flex items-center justify-between">
-            <div>
-              <p className="text-xs text-gray-500 font-semibold uppercase tracking-wider">Unread</p>
-              <p className="text-2xl font-bold np-text-gold mt-1">{unreadCount}</p>
-            </div>
-            <div className="w-10 h-10 rounded-lg bg-yellow-500/10 flex items-center justify-center border border-yellow-500/20">
-              <Mail className="w-5 h-5 text-[#FFD700]" />
-            </div>
-          </div>
-          <div className="np-bg-card rounded-xl border np-border p-4 flex items-center justify-between">
-            <div>
-              <p className="text-xs text-gray-500 font-semibold uppercase tracking-wider">Critical</p>
-              <p className="text-2xl font-bold text-red-500 mt-1">{criticalCount}</p>
-            </div>
-            <div className="w-10 h-10 rounded-lg bg-red-500/10 flex items-center justify-center border border-red-500/20">
-              <Bell className="w-5 h-5 text-red-400 animate-pulse" />
-            </div>
-          </div>
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-white">Notifications</h1>
+          <p className="text-gray-400 text-sm mt-1">{unread} unread · {openMsgs} open support messages</p>
         </div>
-
-        {/* Filter Tabs */}
-        <div className="flex flex-wrap gap-2 mb-6 border-b np-border pb-4">
-          {[
-            { id: "all", label: "All" },
-            { id: "unread", label: "Unread" },
-            { id: "critical", label: "Critical" },
-            { id: "warning", label: "Warning" },
-            { id: "info", label: "Info" }
-          ].map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => setFilter(tab.id)}
-              className={`px-4 py-2 rounded-lg text-xs font-semibold border transition-all ${
-                filter === tab.id
-                  ? "bg-[#FFD700] text-black border-[#FFD700]"
-                  : "bg-zinc-900/50 text-gray-400 border-zinc-800 hover:border-zinc-700"
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
-
-        {/* Notifications List */}
-        <div className="space-y-3">
-          {filteredNotifications.length === 0 ? (
-            <div className="np-bg-card rounded-xl border np-border py-16 text-center">
-              <Bell className="w-10 h-10 text-gray-700 mx-auto mb-3" />
-              <p className="text-gray-500 text-sm">No notifications found</p>
-            </div>
-          ) : (
-            filteredNotifications.map((n) => (
-              <div
-                key={n.id}
-                onClick={() => viewNotification(n)}
-                className={`np-bg-card rounded-xl border np-border p-4 flex items-start gap-4 transition-all cursor-pointer hover:np-bg-card-hover ${
-                  !n.read_by_unish ? "border-l-4 border-l-[#FFD700]" : "opacity-60"
-                }`}
-              >
-                <div className="flex-shrink-0">
-                  <StatusBadge severity={n.severity} />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold">
-                      {n.type ? n.type.replace(/_/g, " ") : "NOTIFICATION"}
-                    </span>
-                    <span className="text-[10px] text-gray-600">·</span>
-                    <span className="text-[10px] text-gray-500">{new Date(n.created_date).toLocaleString()}</span>
-                    {!n.read_by_unish && (
-                      <span className="w-1.5 h-1.5 bg-[#FFD700] rounded-full" />
-                    )}
-                  </div>
-                  <p className="text-sm text-gray-200">{n.message}</p>
-                </div>
-                <div className="flex items-center gap-2 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
-                  {!n.read_by_unish && (
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => markAsRead(n.id)}
-                      className="text-gray-400 hover:text-white hover:bg-zinc-800"
-                    >
-                      <Check className="w-4 h-4 mr-1" /> Mark Read
-                    </Button>
-                  )}
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => deleteNotification(n.id)}
-                    className="text-red-400 hover:bg-red-950/20"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </Button>
-                </div>
-              </div>
-            ))
-          )}
+        <div className="flex gap-2">
+          <button onClick={markAll} disabled={saving||unread===0} className="flex items-center gap-2 px-3 py-2 rounded-lg np-bg-card border np-border text-gray-400 hover:text-white text-sm disabled:opacity-40 transition-colors">
+            <CheckCheck className="w-4 h-4"/> Mark all read
+          </button>
+          <button onClick={load} className="p-2 rounded-lg np-bg-card border np-border text-gray-400 hover:text-white transition-colors"><RefreshCw className="w-4 h-4"/></button>
         </div>
       </div>
 
-      {/* Support Messages Section */}
-      <div className="pt-6 border-t np-border">
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <h2 className="text-lg font-bold text-white flex items-center gap-2">
-              <MessageSquare className="w-5 h-5 np-text-gold" />
-              Open Support Tickets
-            </h2>
-            <p className="text-xs text-gray-500 mt-0.5">Manage and resolve user tickets submitted from servers.</p>
+      {/* Stats */}
+      <div className="grid grid-cols-3 gap-3">
+        {[["Total",notifs.length,"text-white"],["Unread",unread,"text-yellow-400"],["Open Support",openMsgs,"text-red-400"]].map(([l,v,c])=>(
+          <div key={l} className="np-bg-card border np-border rounded-xl p-4 text-center">
+            <p className={`text-2xl font-bold ${c}`}>{v}</p>
+            <p className="text-gray-500 text-xs mt-0.5">{l}</p>
           </div>
-          <span className="px-2.5 py-0.5 bg-blue-500/10 border border-blue-500/20 text-blue-400 text-xs font-semibold rounded-full">
-            {openSupportTickets.length} Open
-          </span>
-        </div>
-
-        <div className="space-y-3">
-          {openSupportTickets.length === 0 ? (
-            <div className="np-bg-card rounded-xl border np-border py-12 text-center text-gray-500 text-sm">
-              All support tickets are resolved. Nice job!
-            </div>
-          ) : (
-            openSupportTickets.map((s) => (
-              <div key={s.id} className="np-bg-card rounded-xl border np-border p-4 flex items-start gap-4 justify-between">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-1.5">
-                    <span className="font-semibold text-sm text-white">{s.guild_name || "Unknown Guild"}</span>
-                    <span className="text-[10px] text-gray-600">·</span>
-                    <span className="text-[10px] text-gray-500">ID: {s.guild_id || "N/A"}</span>
-                  </div>
-                  <p className="text-sm text-gray-300 bg-zinc-950/40 p-3 rounded-lg border border-zinc-800/50 italic">
-                    "{s.message}"
-                  </p>
-                  <p className="text-[10px] text-gray-500 mt-2">Submitted: {new Date(s.created_date).toLocaleString()}</p>
-                </div>
-                <div className="flex flex-col items-end gap-3 flex-shrink-0">
-                  <StatusBadge status={s.status} />
-                  <Button
-                    size="sm"
-                    onClick={() => resolveSupportMessage(s.id)}
-                    className="bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-xs"
-                  >
-                    <Check className="w-3.5 h-3.5 mr-1.5" /> Resolve Ticket
-                  </Button>
-                </div>
-              </div>
-            ))
-          )}
-        </div>
+        ))}
       </div>
+
+      {/* Tabs */}
+      <div className="flex gap-1.5">
+        {[["notifications","Notifications",notifs.length],["support","Support Messages",msgs.length]].map(([t,l,cnt])=>(
+          <button key={t} onClick={()=>setTab(t)} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${tab===t?"bg-indigo-600 text-white":"np-bg-card border np-border text-gray-400 hover:text-white"}`}>
+            {l} {cnt > 0 && <span className="px-1.5 py-0.5 rounded-full bg-white/10 text-xs">{cnt}</span>}
+          </button>
+        ))}
+      </div>
+
+      {loading ? (
+        <div className="flex justify-center py-16"><div className="w-6 h-6 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin"/></div>
+      ) : tab === "notifications" ? (
+        notifs.length === 0 ? (
+          <div className="np-bg-card border np-border rounded-xl p-12 text-center">
+            <Bell className="w-10 h-10 text-gray-600 mx-auto mb-3"/>
+            <p className="text-gray-400">No notifications</p>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {notifs.map(n => {
+              const cfg = SEV[n.severity] || SEV.info;
+              const Icon = cfg.icon;
+              return (
+                <div key={n.id} className={`flex items-start gap-3 p-4 rounded-xl border transition-all ${cfg.style} ${!n.read_by_unish?"ring-1 ring-current/20":""}`}>
+                  <Icon className="w-4 h-4 shrink-0 mt-0.5"/>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-0.5">
+                      <span className="text-xs font-semibold uppercase">{cfg.label}</span>
+                      {!n.read_by_unish && <span className="w-1.5 h-1.5 rounded-full bg-yellow-400"/>}
+                    </div>
+                    <p className="text-sm text-gray-200">{n.message}</p>
+                    <p className="text-xs text-gray-500 mt-1">{new Date(n.created_date).toLocaleString()}</p>
+                  </div>
+                  <div className="flex gap-1 shrink-0">
+                    {!n.read_by_unish && <button onClick={()=>markRead(n.id)} className="p-1.5 rounded-lg hover:bg-white/10 transition-colors" title="Mark read"><CheckCircle className="w-3.5 h-3.5"/></button>}
+                    <button onClick={()=>del(n.id)} className="p-1.5 rounded-lg hover:bg-white/10 hover:text-red-400 transition-colors" title="Delete"><Trash2 className="w-3.5 h-3.5"/></button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )
+      ) : (
+        msgs.length === 0 ? (
+          <div className="np-bg-card border np-border rounded-xl p-12 text-center">
+            <MessageSquare className="w-10 h-10 text-gray-600 mx-auto mb-3"/>
+            <p className="text-gray-400">No support messages</p>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {msgs.map(m => (
+              <div key={m.id} className={`flex items-start gap-3 p-4 rounded-xl border ${m.status==="resolved"?"border-white/10 opacity-60 bg-white/2":"np-bg-card np-border"}`}>
+                <MessageSquare className="w-4 h-4 text-gray-400 shrink-0 mt-0.5"/>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-0.5">
+                    <span className="text-white text-sm font-medium">{m.guild_name||m.guild_id}</span>
+                    <span className={`text-xs px-2 py-0.5 rounded-full ${m.status==="resolved"?"bg-emerald-500/15 text-emerald-400":"bg-yellow-500/15 text-yellow-400"}`}>{m.status||"open"}</span>
+                  </div>
+                  <p className="text-gray-300 text-sm">{m.message}</p>
+                  <p className="text-gray-500 text-xs mt-1">{new Date(m.created_date).toLocaleString()}</p>
+                </div>
+                {m.status !== "resolved" && (
+                  <button onClick={()=>resolveSupport(m.id)} className="shrink-0 px-2.5 py-1 rounded-lg bg-emerald-600/20 text-emerald-400 text-xs font-medium hover:bg-emerald-600/30 transition-colors">Resolve</button>
+                )}
+              </div>
+            ))}
+          </div>
+        )
+      )}
     </div>
   );
 }

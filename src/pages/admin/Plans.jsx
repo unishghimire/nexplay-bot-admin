@@ -1,226 +1,156 @@
-import React, { useState, useEffect, useCallback } from "react";
-import { base44 } from "@/api/base44Client";
-import PageHeader from "@/components/admin/PageHeader";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Switch } from "@/components/ui/switch";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { toast } from "sonner";
-import { Plus, Check, X, Pencil } from "lucide-react";
+import React, { useState, useEffect } from "react";
+import { adminApi } from "@/lib/adminApi";
+import { Plus, Edit2, Trash2, Check, X, RefreshCw, Trophy } from "lucide-react";
+
+const PLAN_COLORS = { "Free Trial":"text-gray-400", "Starter":"text-indigo-400", "Pro":"text-purple-400", "Elite":"text-yellow-400" };
 
 export default function Plans() {
-  const [plans, setPlans] = useState([]);
+  const [plans, setPlans]     = useState([]);
   const [loading, setLoading] = useState(true);
-  const [editingId, setEditingId] = useState(null);
-  const [editValues, setEditValues] = useState({});
-  const [addModal, setAddModal] = useState(false);
-  const [newPlan, setNewPlan] = useState({ name: "Basic", monthly_price: 0, yearly_price: 0, tournament_limit: 10, features: [], active: true });
+  const [modal, setModal]     = useState(null);
+  const [editId, setEditId]   = useState(null);
+  const [saving, setSaving]   = useState(false);
+  const [form, setForm]       = useState({ name:"", monthly_price:0, yearly_price:0, tournament_limit:10, features:[], active:true });
+  const [featInput, setFeatInput] = useState("");
 
-  const load = useCallback(async () => {
+  const load = async () => {
+    setLoading(true);
+    try { const d = await adminApi.plans(); setPlans(d.plans||[]); }
+    catch(e){ console.error(e); }
+    setLoading(false);
+  };
+  useEffect(() => { load(); }, []);
+
+  const openAdd  = () => { setForm({name:"",monthly_price:0,yearly_price:0,tournament_limit:10,features:[],active:true}); setEditId(null); setModal("edit"); };
+  const openEdit = (p) => { setForm({name:p.name,monthly_price:p.monthly_price,yearly_price:p.yearly_price,tournament_limit:p.tournament_limit,features:p.features||[],active:p.active!==false}); setEditId(p.id); setModal("edit"); };
+
+  const save = async () => {
+    if (!form.name) return alert("Name required");
+    setSaving(true);
     try {
-      const data = await base44.entities.Plan.list("-created_date", 50);
-      setPlans(data);
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    load();
-  }, [load]);
-
-  const startEdit = (plan) => {
-    setEditingId(plan.id);
-    setEditValues({ monthly_price: plan.monthly_price, yearly_price: plan.yearly_price, tournament_limit: plan.tournament_limit, features: plan.features || [] });
+      if (editId) await adminApi.updatePlan(editId, form);
+      else await adminApi.createPlan(form);
+      await load(); setModal(null);
+    } catch(e){ alert(e.message); }
+    setSaving(false);
   };
 
-  const saveEdit = async (id) => {
-    try {
-      await base44.entities.Plan.update(id, editValues);
-      setPlans((prev) => prev.map((p) => (p.id === id ? { ...p, ...editValues } : p)));
-      toast.success("Plan updated");
-      setEditingId(null);
-    } catch (e) {
-      toast.error("Failed to update plan");
-    }
+  const del = async (p) => {
+    if (!confirm(`Delete plan "${p.name}"?`)) return;
+    try { await adminApi.deletePlan(p.id); await load(); }
+    catch(e){ alert(e.message); }
   };
 
-  const toggleActive = async (plan) => {
-    try {
-      await base44.entities.Plan.update(plan.id, { active: !plan.active });
-      setPlans((prev) => prev.map((p) => (p.id === plan.id ? { ...p, active: !p.active } : p)));
-    } catch (e) {
-      toast.error("Failed to toggle");
-    }
-  };
-
-  const handleAdd = async () => {
-    try {
-      await base44.entities.Plan.create(newPlan);
-      toast.success("Plan created");
-      setAddModal(false);
-      setNewPlan({ name: "Basic", monthly_price: 0, yearly_price: 0, tournament_limit: 10, features: [], active: true });
-      load();
-    } catch (e) {
-      toast.error("Failed to create plan");
-    }
-  };
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-96">
-        <div className="w-8 h-8 border-4 border-gray-700 rounded-full animate-spin" style={{ borderTopColor: "#FFD700" }} />
-      </div>
-    );
-  }
+  const addFeature = () => { if (featInput.trim()) { setForm(f=>({...f,features:[...f.features,featInput.trim()]})); setFeatInput(""); } };
+  const removeFeature = (i) => setForm(f=>({...f,features:f.features.filter((_,j)=>j!==i)}));
 
   return (
-    <div>
-      <PageHeader
-        title="Plans"
-        subtitle="Manage subscription tiers"
-        actions={<Button onClick={() => setAddModal(true)} className="np-bg-gold text-black hover:brightness-110"><Plus className="w-4 h-4 mr-2" /> Add Plan</Button>}
-      />
-
-      <div className="np-bg-card rounded-xl border np-border overflow-hidden">
-        <div className="overflow-x-auto np-scroll">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b np-border text-gray-500">
-                <th className="text-left px-4 py-3 font-semibold">Name</th>
-                <th className="text-left px-4 py-3 font-semibold">Monthly Price</th>
-                <th className="text-left px-4 py-3 font-semibold">Yearly Price</th>
-                <th className="text-left px-4 py-3 font-semibold">Tournament Limit</th>
-                <th className="text-left px-4 py-3 font-semibold">Features</th>
-                <th className="text-left px-4 py-3 font-semibold">Active</th>
-                <th className="px-4 py-3"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {plans.map((plan) => (
-                <tr key={plan.id} className="border-b np-border">
-                  <td className="px-4 py-3 font-medium np-text-gold">{plan.name}</td>
-                  {editingId === plan.id ? (
-                    <>
-                      <td className="px-4 py-3">
-                        <Input
-                          type="number"
-                          value={editValues.monthly_price}
-                          onChange={(e) => setEditValues({ ...editValues, monthly_price: Number(e.target.value) })}
-                          className="np-bg-base border-np-border text-white w-24 h-8"
-                        />
-                      </td>
-                      <td className="px-4 py-3">
-                        <Input
-                          type="number"
-                          value={editValues.yearly_price}
-                          onChange={(e) => setEditValues({ ...editValues, yearly_price: Number(e.target.value) })}
-                          className="np-bg-base border-np-border text-white w-24 h-8"
-                        />
-                      </td>
-                      <td className="px-4 py-3">
-                        <Input
-                          type="number"
-                          value={editValues.tournament_limit}
-                          onChange={(e) => setEditValues({ ...editValues, tournament_limit: Number(e.target.value) })}
-                          className="np-bg-base border-np-border text-white w-24 h-8"
-                        />
-                      </td>
-                      <td className="px-4 py-3">
-                        <Input
-                          value={(editValues.features || []).join(", ")}
-                          onChange={(e) => setEditValues({ ...editValues, features: e.target.value.split(",").map((f) => f.trim()).filter(Boolean) })}
-                          className="np-bg-base border-np-border text-white h-8"
-                          placeholder="feature1, feature2"
-                        />
-                      </td>
-                    </>
-                  ) : (
-                    <>
-                      <td className="px-4 py-3 text-white">${plan.monthly_price}</td>
-                      <td className="px-4 py-3 text-white">${plan.yearly_price}</td>
-                      <td className="px-4 py-3 text-white">{plan.tournament_limit}</td>
-                      <td className="px-4 py-3 text-gray-400 text-xs max-w-xs truncate">{(plan.features || []).join(", ") || "—"}</td>
-                    </>
-                  )}
-                  <td className="px-4 py-3">
-                    <Switch checked={plan.active} onCheckedChange={() => toggleActive(plan)} />
-                  </td>
-                  <td className="px-4 py-3">
-                    {editingId === plan.id ? (
-                      <div className="flex gap-1">
-                        <Button size="icon" variant="ghost" onClick={() => saveEdit(plan.id)} className="text-emerald-400 hover:np-bg-card-hover h-8 w-8">
-                          <Check className="w-4 h-4" />
-                        </Button>
-                        <Button size="icon" variant="ghost" onClick={() => setEditingId(null)} className="text-red-400 hover:np-bg-card-hover h-8 w-8">
-                          <X className="w-4 h-4" />
-                        </Button>
-                      </div>
-                    ) : (
-                      <Button size="icon" variant="ghost" onClick={() => startEdit(plan)} className="text-gray-400 hover:np-bg-card-hover h-8 w-8">
-                        <Pencil className="w-4 h-4" />
-                      </Button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div><h1 className="text-2xl font-bold text-white">Plans</h1><p className="text-gray-400 text-sm mt-1">Manage subscription tiers</p></div>
+        <div className="flex gap-2">
+          <button onClick={load} className="p-2 rounded-lg np-bg-card border np-border text-gray-400 hover:text-white transition-colors"><RefreshCw className="w-4 h-4"/></button>
+          <button onClick={openAdd} className="flex items-center gap-2 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold transition-colors"><Plus className="w-4 h-4"/> Add Plan</button>
         </div>
-        {plans.length === 0 && <div className="py-12 text-center text-gray-500 text-sm">No plans yet</div>}
       </div>
 
-      {/* Add Plan Modal */}
-      <Dialog open={addModal} onOpenChange={setAddModal}>
-        <DialogContent className="np-bg-card border-np-border text-white">
-          <DialogHeader>
-            <DialogTitle className="text-lg font-bold text-white">Add Plan</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-3">
-            <div>
-              <label className="text-xs text-gray-500 mb-1 block">Plan Name</label>
-              <select
-                value={newPlan.name}
-                onChange={(e) => setNewPlan({ ...newPlan, name: e.target.value })}
-                className="w-full np-bg-base border-np-border text-white rounded-md px-3 py-2 text-sm"
-              >
-                <option value="Free Trial">Free Trial</option>
-                <option value="Basic">Basic</option>
-                <option value="Pro">Pro</option>
-              </select>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-xs text-gray-500 mb-1 block">Monthly Price ($)</label>
-                <Input type="number" value={newPlan.monthly_price} onChange={(e) => setNewPlan({ ...newPlan, monthly_price: Number(e.target.value) })} className="np-bg-base border-np-border text-white" />
+      {loading ? (
+        <div className="flex justify-center py-20"><div className="w-8 h-8 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin"/></div>
+      ) : plans.length === 0 ? (
+        <div className="np-bg-card border np-border rounded-xl p-12 text-center">
+          <Trophy className="w-10 h-10 text-gray-600 mx-auto mb-3"/>
+          <p className="text-gray-400">No plans yet. Add your first plan.</p>
+          <button onClick={openAdd} className="mt-4 px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm">Add Plan</button>
+        </div>
+      ) : (
+        <div className="grid md:grid-cols-2 xl:grid-cols-4 gap-4">
+          {plans.map(p => (
+            <div key={p.id} className={`np-bg-card border rounded-xl p-5 flex flex-col transition-all ${p.active?"np-border":"border-white/5 opacity-60"}`}>
+              <div className="flex items-start justify-between mb-3">
+                <div>
+                  <p className={`text-lg font-bold ${PLAN_COLORS[p.name]||"text-white"}`}>{p.name}</p>
+                  <p className="text-2xl font-bold text-white mt-1">NPR {p.monthly_price}<span className="text-gray-500 text-sm font-normal">/mo</span></p>
+                  {p.yearly_price > 0 && <p className="text-gray-500 text-xs">NPR {p.yearly_price}/yr</p>}
+                </div>
+                <div className="flex gap-1">
+                  <button onClick={()=>openEdit(p)} className="p-1.5 rounded-lg text-gray-500 hover:text-white hover:bg-white/5 transition-colors"><Edit2 className="w-3.5 h-3.5"/></button>
+                  <button onClick={()=>del(p)} className="p-1.5 rounded-lg text-gray-500 hover:text-red-400 hover:bg-red-500/10 transition-colors"><Trash2 className="w-3.5 h-3.5"/></button>
+                </div>
               </div>
-              <div>
-                <label className="text-xs text-gray-500 mb-1 block">Yearly Price ($)</label>
-                <Input type="number" value={newPlan.yearly_price} onChange={(e) => setNewPlan({ ...newPlan, yearly_price: Number(e.target.value) })} className="np-bg-base border-np-border text-white" />
+              <p className="text-xs text-gray-500 mb-2">Up to <span className="text-white font-semibold">{p.tournament_limit === 999 ? "Unlimited" : p.tournament_limit}</span> tournaments</p>
+              <div className="flex-1 space-y-1.5">
+                {(p.features||[]).map((f,i) => (
+                  <div key={i} className="flex items-start gap-1.5 text-xs text-gray-300">
+                    <Check className="w-3 h-3 text-emerald-400 shrink-0 mt-0.5"/>
+                    <span>{f}</span>
+                  </div>
+                ))}
+              </div>
+              <div className="mt-3 pt-3 border-t np-border">
+                <span className={`text-xs font-semibold ${p.active?"text-emerald-400":"text-gray-600"}`}>{p.active?"● Active":"○ Inactive"}</span>
               </div>
             </div>
-            <div>
-              <label className="text-xs text-gray-500 mb-1 block">Tournament Limit</label>
-              <Input type="number" value={newPlan.tournament_limit} onChange={(e) => setNewPlan({ ...newPlan, tournament_limit: Number(e.target.value) })} className="np-bg-base border-np-border text-white" />
+          ))}
+        </div>
+      )}
+
+      {/* Edit Modal */}
+      {modal === "edit" && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+          <div className="np-bg-card border np-border rounded-2xl w-full max-w-md shadow-2xl max-h-[90vh] overflow-y-auto">
+            <div className="px-6 py-5 border-b np-border flex items-center justify-between sticky top-0 np-bg-card">
+              <h2 className="text-lg font-bold text-white">{editId?"Edit":"Add"} Plan</h2>
+              <button onClick={()=>setModal(null)} className="text-gray-500 hover:text-white text-xl">✕</button>
             </div>
-            <div>
-              <label className="text-xs text-gray-500 mb-1 block">Features (comma-separated)</label>
-              <Input
-                value={(newPlan.features || []).join(", ")}
-                onChange={(e) => setNewPlan({ ...newPlan, features: e.target.value.split(",").map((f) => f.trim()).filter(Boolean) })}
-                className="np-bg-base border-np-border text-white"
-                placeholder="feature1, feature2"
-              />
+            <div className="p-6 space-y-4">
+              {[
+                {label:"Plan Name *", key:"name", type:"text", placeholder:"e.g. Pro"},
+                {label:"Monthly Price (NPR)", key:"monthly_price", type:"number"},
+                {label:"Yearly Price (NPR)", key:"yearly_price", type:"number"},
+                {label:"Tournament Limit", key:"tournament_limit", type:"number", placeholder:"999 for unlimited"},
+              ].map(f => (
+                <div key={f.key}>
+                  <label className="text-xs text-gray-500 uppercase tracking-wider block mb-1.5">{f.label}</label>
+                  <input type={f.type} value={form[f.key]} onChange={e=>setForm(p=>({...p,[f.key]:f.type==="number"?Number(e.target.value):e.target.value}))}
+                    placeholder={f.placeholder}
+                    className="w-full px-3 py-2.5 rounded-lg np-bg-base border np-border text-white text-sm placeholder-gray-600 focus:outline-none focus:border-indigo-500/50"/>
+                </div>
+              ))}
+              {/* Features */}
+              <div>
+                <label className="text-xs text-gray-500 uppercase tracking-wider block mb-1.5">Features</label>
+                <div className="space-y-1.5 mb-2">
+                  {form.features.map((f,i) => (
+                    <div key={i} className="flex items-center gap-2 bg-white/5 px-3 py-1.5 rounded-lg">
+                      <span className="text-gray-300 text-sm flex-1">{f}</span>
+                      <button onClick={()=>removeFeature(i)} className="text-red-400 hover:text-red-300"><X className="w-3.5 h-3.5"/></button>
+                    </div>
+                  ))}
+                </div>
+                <div className="flex gap-2">
+                  <input value={featInput} onChange={e=>setFeatInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&addFeature()}
+                    placeholder="Add feature..." className="flex-1 px-3 py-2 rounded-lg np-bg-base border np-border text-white text-sm placeholder-gray-600 focus:outline-none"/>
+                  <button onClick={addFeature} className="px-3 py-2 rounded-lg bg-indigo-600 text-white text-sm"><Plus className="w-4 h-4"/></button>
+                </div>
+              </div>
+              {/* Active toggle */}
+              <div className="flex items-center gap-3">
+                <label className="text-xs text-gray-500 uppercase tracking-wider">Active</label>
+                <button onClick={()=>setForm(f=>({...f,active:!f.active}))}
+                  className={`w-11 h-6 rounded-full transition-colors relative ${form.active?"bg-indigo-600":"bg-gray-700"}`}>
+                  <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white transition-all ${form.active?"left-5":"left-0.5"}`}/>
+                </button>
+              </div>
+              <div className="flex gap-3 pt-2">
+                <button onClick={()=>setModal(null)} className="flex-1 py-2.5 rounded-xl np-bg-base border np-border text-gray-400 text-sm">Cancel</button>
+                <button onClick={save} disabled={saving} className="flex-1 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold disabled:opacity-50">
+                  {saving?"Saving…":editId?"Update":"Create"}
+                </button>
+              </div>
             </div>
           </div>
-          <div className="flex gap-2 justify-end">
-            <Button variant="outline" onClick={() => setAddModal(false)} className="border-np-border text-white">Cancel</Button>
-            <Button onClick={handleAdd} className="np-bg-gold text-black hover:brightness-110">Create Plan</Button>
-          </div>
-        </DialogContent>
-      </Dialog>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,336 +1,125 @@
-import React, { useState, useEffect, useCallback } from "react";
-import { base44 } from "@/api/base44Client";
-import PageHeader from "@/components/admin/PageHeader";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Switch } from "@/components/ui/switch";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { toast } from "sonner";
-import { Plus, Copy, Trash2, Check, Edit2, AlertCircle } from "lucide-react";
+import React, { useState, useEffect } from "react";
+import { adminApi } from "@/lib/adminApi";
+import { Plus, Edit2, Trash2, RefreshCw, Tag, Copy, Check } from "lucide-react";
 
 export default function PromoCodes() {
-  const [codes, setCodes] = useState([]);
+  const [codes, setCodes]   = useState([]);
   const [loading, setLoading] = useState(true);
-  const [modalOpen, setModalOpen] = useState(false);
-  const [editingCode, setEditingCode] = useState(null); // null means adding new code
-  const [formData, setFormData] = useState({
-    code: "",
-    discount_percent: 10,
-    max_uses: 100,
-    expires_at: "",
-    active: true
-  });
-  const [copiedId, setCopiedId] = useState(null);
+  const [modal, setModal]   = useState(null);
+  const [editId, setEditId] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [copied, setCopied] = useState(null);
+  const [form, setForm]     = useState({ code:"", discount_percent:10, max_uses:100, expires_at:"", active:true });
 
-  const load = useCallback(async () => {
-    try {
-      const data = await base44.entities.PromoCode.list("-created_date", 100);
-      setCodes(data);
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const load = async () => { setLoading(true); try { const d=await adminApi.promoCodes(); setCodes(d.promo_codes||[]); } catch(e){ console.error(e); } setLoading(false); };
+  useEffect(() => { load(); }, []);
 
-  useEffect(() => {
-    load();
-  }, [load]);
+  const openAdd  = () => { setForm({code:"",discount_percent:10,max_uses:100,expires_at:"",active:true}); setEditId(null); setModal("edit"); };
+  const openEdit = (c) => { setForm({code:c.code,discount_percent:c.discount_percent,max_uses:c.max_uses,expires_at:c.expires_at?c.expires_at.split("T")[0]:"",active:c.active!==false}); setEditId(c.id); setModal("edit"); };
 
-  const copyCode = async (code, id) => {
-    try {
-      await navigator.clipboard.writeText(code);
-      setCopiedId(id);
-      toast.success("Code copied to clipboard");
-      setTimeout(() => setCopiedId(null), 2000);
-    } catch {
-      toast.error("Failed to copy");
-    }
+  const save = async () => {
+    if (!form.code) return alert("Code required");
+    setSaving(true);
+    const data = {...form, expires_at: form.expires_at ? new Date(form.expires_at).toISOString() : null};
+    try { if(editId) await adminApi.updatePromo(editId,data); else await adminApi.createPromo(data); await load(); setModal(null); }
+    catch(e){ alert(e.message); }
+    setSaving(false);
   };
 
-  const toggleActive = async (item) => {
-    try {
-      await base44.entities.PromoCode.update(item.id, { active: !item.active });
-      setCodes((prev) => prev.map((c) => (c.id === item.id ? { ...c, active: !c.active } : c)));
-      toast.success(`Promo code ${!item.active ? "activated" : "deactivated"}`);
-    } catch (e) {
-      toast.error("Failed to toggle status");
-    }
-  };
+  const del = async (c) => { if(!confirm(`Delete "${c.code}"?`)) return; try { await adminApi.deletePromo(c.id); await load(); } catch(e){ alert(e.message); } };
 
-  const handleDelete = async (id) => {
-    if (!window.confirm("Are you sure you want to delete this promo code?")) return;
-    try {
-      await base44.entities.PromoCode.delete(id);
-      setCodes((prev) => prev.filter((c) => c.id !== id));
-      toast.success("Promo code deleted");
-    } catch (e) {
-      toast.error("Failed to delete");
-    }
-  };
+  const copy = async (code) => { await navigator.clipboard.writeText(code); setCopied(code); setTimeout(()=>setCopied(null),2000); };
 
-  const openAddModal = () => {
-    setEditingCode(null);
-    setFormData({
-      code: "",
-      discount_percent: 10,
-      max_uses: 100,
-      expires_at: "",
-      active: true
-    });
-    setModalOpen(true);
-  };
-
-  const openEditModal = (item) => {
-    setEditingCode(item);
-    setFormData({
-      code: item.code,
-      discount_percent: item.discount_percent,
-      max_uses: item.max_uses,
-      expires_at: item.expires_at ? item.expires_at.split("T")[0] : "",
-      active: item.active
-    });
-    setModalOpen(true);
-  };
-
-  const handleSubmit = async () => {
-    if (!formData.code.trim()) {
-      toast.error("Code is required");
-      return;
-    }
-    try {
-      if (editingCode) {
-        await base44.entities.PromoCode.update(editingCode.id, formData);
-        toast.success("Promo code updated");
-      } else {
-        await base44.entities.PromoCode.create(formData);
-        toast.success("Promo code created");
-      }
-      setModalOpen(false);
-      load();
-    } catch (e) {
-      toast.error(`Failed to save promo code`);
-    }
-  };
-
-  const isExpired = (dateStr) => {
-    if (!dateStr) return false;
-    return new Date(dateStr) < new Date();
-  };
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-96">
-        <div className="w-8 h-8 border-4 border-gray-700 rounded-full animate-spin" style={{ borderTopColor: "#FFD700" }} />
-      </div>
-    );
-  }
+  const isExpired = (c) => c.expires_at && new Date(c.expires_at) < new Date();
+  const usagePct  = (c) => c.max_uses > 0 ? Math.min(100, Math.round((c.used_count||0)/c.max_uses*100)) : 0;
 
   return (
-    <div>
-      <PageHeader
-        title="Promo Codes"
-        subtitle={`${codes.length} promo codes`}
-        actions={
-          <Button onClick={openAddModal} className="np-bg-gold text-black hover:brightness-110">
-            <Plus className="w-4 h-4 mr-2" /> Create Promo Code
-          </Button>
-        }
-      />
-
-      <div className="np-bg-card rounded-xl border np-border overflow-hidden">
-        <div className="overflow-x-auto np-scroll">
-          <table className="w-full text-sm text-left">
-            <thead>
-              <tr className="border-b np-border text-gray-500 bg-zinc-950/20">
-                <th className="px-6 py-4 font-semibold uppercase tracking-wider text-xs">Code</th>
-                <th className="px-6 py-4 font-semibold uppercase tracking-wider text-xs">Discount</th>
-                <th className="px-6 py-4 font-semibold uppercase tracking-wider text-xs">Usage Progress (Used/Max)</th>
-                <th className="px-6 py-4 font-semibold uppercase tracking-wider text-xs">Expires</th>
-                <th className="px-6 py-4 font-semibold uppercase tracking-wider text-xs">Active</th>
-                <th className="px-6 py-4 font-semibold uppercase tracking-wider text-xs text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-zinc-800">
-              {codes.map((c) => {
-    const expired = isExpired(c.expires_at);
-    const uses = c.used_count || 0;
-    const max = c.max_uses || 0;
-    const pct = max > 0 ? Math.min((uses / max) * 100, 100) : 0;
-
-    return (
-      <tr
-        key={c.id}
-        className={`hover:np-bg-card-hover transition-colors ${
-          expired ? "opacity-40 bg-red-950/5" : ""
-        }`}
-      >
-        <td className="px-6 py-4">
-          <div className="flex items-center gap-2">
-            <span className="font-mono font-bold np-text-gold tracking-wide text-base">{c.code}</span>
-            <button
-              onClick={() => copyCode(c.code, c.id)}
-              className="text-gray-500 hover:np-text-gold transition-colors p-1 rounded hover:bg-zinc-850"
-            >
-              {copiedId === c.id ? (
-                <Check className="w-4 h-4 text-emerald-400" />
-              ) : (
-                <Copy className="w-4 h-4" />
-              )}
-            </button>
-            {expired && (
-              <span className="flex items-center gap-1 text-[10px] bg-red-500/10 border border-red-500/20 text-red-400 px-1.5 py-0.5 rounded font-semibold">
-                <AlertCircle className="w-3 h-3" /> Expired
-              </span>
-            )}
-          </div>
-        </td>
-        <td className="px-6 py-4">
-          <span className="text-white font-semibold text-sm bg-zinc-900 px-2.5 py-1 rounded-lg border border-zinc-800">
-            {c.discount_percent}% OFF
-          </span>
-        </td>
-        <td className="px-6 py-4">
-          <div className="max-w-[180px]">
-            <div className="flex justify-between items-center text-xs mb-1.5">
-              <span className="text-gray-400 font-medium">
-                {uses} / {max}
-              </span>
-              <span className="text-gray-500 text-[10px]">{Math.round(pct)}%</span>
-            </div>
-            <div className="w-full bg-zinc-800 h-2 rounded-full overflow-hidden">
-              <div
-                className={`h-full rounded-full transition-all duration-500 ${
-                  pct >= 100 ? "bg-red-500" : "bg-[#FFD700]"
-                }`}
-                style={{ width: `${pct}%` }}
-              />
-            </div>
-          </div>
-        </td>
-        <td className="px-6 py-4 text-gray-400 font-medium text-xs">
-          {c.expires_at ? new Date(c.expires_at).toLocaleDateString(undefined, { dateStyle: "medium" }) : "Unlimited"}
-        </td>
-        <td className="px-6 py-4">
-          <Switch
-            checked={c.active}
-            onCheckedChange={() => toggleActive(c)}
-            disabled={expired}
-            className="data-[state=checked]:bg-[#FFD700]"
-          />
-        </td>
-        <td className="px-6 py-4 text-right">
-          <div className="flex items-center justify-end gap-1">
-            <Button
-              size="icon"
-              variant="ghost"
-              onClick={() => openEditModal(c)}
-              className="text-gray-400 hover:text-white hover:bg-zinc-800 h-8 w-8"
-            >
-              <Edit2 className="w-4 h-4" />
-            </Button>
-            <Button
-              size="icon"
-              variant="ghost"
-              onClick={() => handleDelete(c.id)}
-              className="text-red-400 hover:bg-red-950/20 h-8 w-8"
-            >
-              <Trash2 className="w-4 h-4" />
-            </Button>
-          </div>
-        </td>
-      </tr>
-    );
-  })}
-            </tbody>
-          </table>
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div><h1 className="text-2xl font-bold text-white">Promo Codes</h1><p className="text-gray-400 text-sm mt-1">Manage discount codes</p></div>
+        <div className="flex gap-2">
+          <button onClick={load} className="p-2 rounded-lg np-bg-card border np-border text-gray-400 hover:text-white"><RefreshCw className="w-4 h-4"/></button>
+          <button onClick={openAdd} className="flex items-center gap-2 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold"><Plus className="w-4 h-4"/> Add Code</button>
         </div>
-        {codes.length === 0 && (
-          <div className="py-16 text-center text-gray-500 text-sm">
-            No promo codes found
-          </div>
-        )}
       </div>
 
-      {/* Add / Edit Modal */}
-      <Dialog open={modalOpen} onOpenChange={setModalOpen}>
-        <DialogContent className="np-bg-card border-np-border text-white">
-          <DialogHeader>
-            <DialogTitle className="text-lg font-bold text-white">
-              {editingCode ? "Edit Promo Code" : "Create Promo Code"}
-            </DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 pt-2">
-            <div>
-              <label className="text-xs text-gray-400 mb-1.5 block font-medium">Code</label>
-              <Input
-                value={formData.code}
-                onChange={(e) => setFormData({ ...formData, code: e.target.value.toUpperCase() })}
-                className="np-bg-base border-np-border text-white font-mono uppercase tracking-wider"
-                placeholder="PROMO50"
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="text-xs text-gray-400 mb-1.5 block font-medium">Discount %</label>
-                <Input
-                  type="number"
-                  value={formData.discount_percent}
-                  onChange={(e) => setFormData({ ...formData, discount_percent: Number(e.target.value) })}
-                  className="np-bg-base border-np-border text-white"
-                  min={1}
-                  max={100}
-                />
+      {loading ? <div className="flex justify-center py-20"><div className="w-8 h-8 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin"/></div>
+      : codes.length === 0 ? (
+        <div className="np-bg-card border np-border rounded-xl p-12 text-center">
+          <Tag className="w-10 h-10 text-gray-600 mx-auto mb-3"/>
+          <p className="text-gray-400">No promo codes yet.</p>
+          <button onClick={openAdd} className="mt-4 px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm">Add Code</button>
+        </div>
+      ) : (
+        <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-4">
+          {codes.map(c => {
+            const expired = isExpired(c);
+            const pct = usagePct(c);
+            return (
+              <div key={c.id} className={`np-bg-card border rounded-xl p-5 space-y-3 transition-all ${!c.active||expired?"border-white/5 opacity-60":"np-border"}`}>
+                <div className="flex items-start justify-between">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <p className="text-white font-bold font-mono text-lg">{c.code}</p>
+                      <button onClick={()=>copy(c.code)} className="text-gray-500 hover:text-white transition-colors">
+                        {copied===c.code ? <Check className="w-3.5 h-3.5 text-emerald-400"/> : <Copy className="w-3.5 h-3.5"/>}
+                      </button>
+                    </div>
+                    <p className="text-indigo-400 font-semibold text-sm">{c.discount_percent}% off</p>
+                  </div>
+                  <div className="flex gap-1">
+                    <button onClick={()=>openEdit(c)} className="p-1.5 rounded-lg text-gray-500 hover:text-white hover:bg-white/5 transition-colors"><Edit2 className="w-3.5 h-3.5"/></button>
+                    <button onClick={()=>del(c)} className="p-1.5 rounded-lg text-gray-500 hover:text-red-400 hover:bg-red-500/10 transition-colors"><Trash2 className="w-3.5 h-3.5"/></button>
+                  </div>
+                </div>
+                {/* Usage bar */}
+                <div>
+                  <div className="flex justify-between text-xs text-gray-500 mb-1">
+                    <span>Usage</span>
+                    <span className="text-white">{c.used_count||0} / {c.max_uses}</span>
+                  </div>
+                  <div className="h-1.5 rounded-full bg-white/10 overflow-hidden">
+                    <div className={`h-full rounded-full transition-all ${pct>=90?"bg-red-500":pct>=50?"bg-yellow-500":"bg-indigo-500"}`} style={{width:`${pct}%`}}/>
+                  </div>
+                </div>
+                <div className="flex items-center justify-between text-xs">
+                  {c.expires_at ? (
+                    <span className={expired?"text-red-400":"text-gray-400"}>
+                      {expired?"Expired":"Expires"}: {new Date(c.expires_at).toLocaleDateString()}
+                    </span>
+                  ) : <span className="text-gray-500">No expiry</span>}
+                  <span className={`font-semibold ${c.active&&!expired?"text-emerald-400":"text-gray-600"}`}>{c.active&&!expired?"● Active":"○ Inactive"}</span>
+                </div>
               </div>
-              <div>
-                <label className="text-xs text-gray-400 mb-1.5 block font-medium">Max Uses</label>
-                <Input
-                  type="number"
-                  value={formData.max_uses}
-                  onChange={(e) => setFormData({ ...formData, max_uses: Number(e.target.value) })}
-                  className="np-bg-base border-np-border text-white"
-                  min={1}
-                />
+            );
+          })}
+        </div>
+      )}
+
+      {modal === "edit" && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+          <div className="np-bg-card border np-border rounded-2xl w-full max-w-sm shadow-2xl p-6 space-y-4">
+            <div className="flex items-center justify-between"><h2 className="text-lg font-bold text-white">{editId?"Edit":"Add"} Promo Code</h2><button onClick={()=>setModal(null)} className="text-gray-500 hover:text-white">✕</button></div>
+            {[{label:"Code *",key:"code",type:"text",placeholder:"NEXPLAY20"},{label:"Discount %",key:"discount_percent",type:"number"},{label:"Max Uses",key:"max_uses",type:"number"},{label:"Expires At",key:"expires_at",type:"date"}].map(f=>(
+              <div key={f.key}>
+                <label className="text-xs text-gray-500 uppercase tracking-wider block mb-1.5">{f.label}</label>
+                <input type={f.type} value={form[f.key]} onChange={e=>setForm(p=>({...p,[f.key]:f.type==="number"?Number(e.target.value):e.target.value}))} placeholder={f.placeholder}
+                  className="w-full px-3 py-2.5 rounded-lg np-bg-base border np-border text-white text-sm placeholder-gray-600 focus:outline-none focus:border-indigo-500/50 [color-scheme:dark]"/>
               </div>
+            ))}
+            <div className="flex items-center gap-3">
+              <label className="text-xs text-gray-500 uppercase tracking-wider">Active</label>
+              <button onClick={()=>setForm(f=>({...f,active:!f.active}))} className={`w-11 h-6 rounded-full transition-colors relative ${form.active?"bg-indigo-600":"bg-gray-700"}`}>
+                <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white transition-all ${form.active?"left-5":"left-0.5"}`}/>
+              </button>
             </div>
-            <div>
-              <label className="text-xs text-gray-400 mb-1.5 block font-medium">Expires At</label>
-              <Input
-                type="date"
-                value={formData.expires_at}
-                onChange={(e) => setFormData({ ...formData, expires_at: e.target.value })}
-                className="np-bg-base border-np-border text-white"
-              />
-            </div>
-            <div className="flex items-center justify-between border-t border-zinc-800 pt-4 mt-2">
-              <div>
-                <label className="text-sm text-gray-300 font-semibold block">Active Status</label>
-                <span className="text-[10px] text-gray-500">Allow users to redeem this promo code instantly</span>
-              </div>
-              <Switch
-                checked={formData.active}
-                onCheckedChange={(checked) => setFormData({ ...formData, active: checked })}
-                className="data-[state=checked]:bg-[#FFD700]"
-              />
+            <div className="flex gap-3 pt-2">
+              <button onClick={()=>setModal(null)} className="flex-1 py-2.5 rounded-xl np-bg-base border np-border text-gray-400 text-sm">Cancel</button>
+              <button onClick={save} disabled={saving} className="flex-1 py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-semibold disabled:opacity-50">{saving?"Saving…":editId?"Update":"Create"}</button>
             </div>
           </div>
-          <div className="flex gap-2 justify-end border-t border-zinc-800 pt-4 mt-4">
-            <Button
-              variant="outline"
-              onClick={() => setModalOpen(false)}
-              className="border-np-border text-white hover:bg-zinc-900"
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={handleSubmit}
-              className="np-bg-gold text-black hover:brightness-110"
-            >
-              {editingCode ? "Save Changes" : "Create Code"}
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
+        </div>
+      )}
     </div>
   );
 }
