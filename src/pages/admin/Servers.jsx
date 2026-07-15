@@ -12,6 +12,7 @@ import { Search, ChevronRight, Gavel, ArrowUpCircle, ShieldBan, ShieldCheck } fr
 
 export default function Servers() {
   const [servers, setServers] = useState([]);
+  const [plans, setPlans] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("all");
   const [search, setSearch] = useState("");
@@ -20,12 +21,19 @@ export default function Servers() {
   const [banModal, setBanModal] = useState(false);
   const [banReason, setBanReason] = useState("");
   const [upgradeModal, setUpgradeModal] = useState(false);
-  const [upgradePlan, setUpgradePlan] = useState("Basic");
+  const [upgradePlan, setUpgradePlan] = useState("");
 
-  const loadServers = useCallback(async () => {
+  const loadData = useCallback(async () => {
     try {
-      const data = await base44.entities.Server.list("-created_date", 500);
-      setServers(data);
+      const [serverData, planData] = await Promise.all([
+        base44.entities.Server.list("-created_date", 500),
+        base44.entities.Plan.list("-created_date", 100),
+      ]);
+      setServers(serverData);
+      setPlans(planData);
+      if (planData.length > 0) {
+        setUpgradePlan(planData[0].name);
+      }
     } catch (e) {
       console.error(e);
     } finally {
@@ -34,79 +42,87 @@ export default function Servers() {
   }, []);
 
   useEffect(() => {
-    loadServers();
-  }, [loadServers]);
+    loadData();
+  }, [loadData]);
 
   const loadDetail = async (server) => {
     setSelected(server);
     setDetailData({ tournaments: [], messages: [], loading: true });
     try {
       const [tourns, msgs] = await Promise.all([
-        base44.entities.Tournament.filter({ guild_id: server.guild_id }, "-created_date", 50),
-        base44.entities.SupportMessage.filter({ guild_id: server.guild_id }, "-created_date", 50),
+        base44.entities.Tournament.list("-created_date", 500),
+        base44.entities.SupportMessage.list("-created_date", 500),
       ]);
-      setDetailData({ tournaments: tourns, messages: msgs, loading: false });
+      
+      const filteredTourns = tourns.filter((t) => t.guild_id === server.guild_id);
+      const filteredMsgs = msgs.filter((m) => m.guild_id === server.guild_id);
+
+      setDetailData({ tournaments: filteredTourns, messages: filteredMsgs, loading: false });
     } catch (e) {
+      console.error(e);
       setDetailData({ tournaments: [], messages: [], loading: false });
     }
   };
 
-  const handleAddTrial = async () => {
-    try {
-      await base44.entities.Server.update(selected.id, {
-        subscription_status: "trial",
-        plan_name: "Free Trial",
-        tournament_limit: 3,
-      });
-      await base44.entities.AdminNotification.create({
-        type: "trial_expiry",
-        severity: "info",
-        message: `30-day trial added to ${selected.guild_name}`,
-        read_by_unish: false,
-      });
-      toast.success("30-day trial added");
-      setServers((prev) => prev.map((s) => (s.id === selected.id ? { ...s, subscription_status: "trial", plan_name: "Free Trial", tournament_limit: 3 } : s)));
-      setSelected(null);
-    } catch (e) {
-      toast.error("Failed to add trial");
-    }
-  };
-
   const handleUpgrade = async () => {
+    const selectedPlanObj = plans.find((p) => p.name === upgradePlan);
+    if (!selectedPlanObj) return;
+
     try {
       await base44.entities.Server.update(selected.id, {
-        subscription_status: "active",
         plan_name: upgradePlan,
+        subscription_status: "active",
+        tournament_limit: selectedPlanObj.tournament_limit || 10,
       });
-      await base44.entities.AdminNotification.create({
-        type: "upgrade",
-        severity: "info",
-        message: `${selected.guild_name} upgraded to ${upgradePlan} plan`,
-        read_by_unish: false,
-      });
-      toast.success(`Upgraded to ${upgradePlan}`);
-      setServers((prev) => prev.map((s) => (s.id === selected.id ? { ...s, subscription_status: "active", plan_name: upgradePlan } : s)));
+      toast.success(`Server upgraded to ${upgradePlan}`);
+      setServers((prev) =>
+        prev.map((s) =>
+          s.id === selected.id
+            ? { ...s, plan_name: upgradePlan, subscription_status: "active", tournament_limit: selectedPlanObj.tournament_limit || 10 }
+            : s
+        )
+      );
       setUpgradeModal(false);
       setSelected(null);
     } catch (e) {
-      toast.error("Failed to upgrade");
+      toast.error("Failed to upgrade plan");
+    }
+  };
+
+  const handleExtendTrial = async () => {
+    try {
+      await base44.entities.Server.update(selected.id, {
+        subscription_status: "trial",
+        tournament_limit: 3,
+      });
+      toast.success("Trial extended");
+      setServers((prev) =>
+        prev.map((s) =>
+          s.id === selected.id ? { ...s, subscription_status: "trial", tournament_limit: 3 } : s
+        )
+      );
+      setSelected(null);
+    } catch (e) {
+      toast.error("Failed to extend trial");
     }
   };
 
   const handleBan = async () => {
+    if (!banReason.trim()) {
+      toast.error("Please provide a ban reason");
+      return;
+    }
     try {
       await base44.entities.Server.update(selected.id, {
         subscription_status: "banned",
         ban_reason: banReason,
       });
-      await base44.entities.AdminNotification.create({
-        type: "ban",
-        severity: "critical",
-        message: `${selected.guild_name} banned: ${banReason}`,
-        read_by_unish: false,
-      });
       toast.success("Server banned");
-      setServers((prev) => prev.map((s) => (s.id === selected.id ? { ...s, subscription_status: "banned", ban_reason: banReason } : s)));
+      setServers((prev) =>
+        prev.map((s) =>
+          s.id === selected.id ? { ...s, subscription_status: "banned", ban_reason: banReason } : s
+        )
+      );
       setBanModal(false);
       setBanReason("");
       setSelected(null);
@@ -122,16 +138,23 @@ export default function Servers() {
         ban_reason: "",
       });
       toast.success("Server unbanned");
-      setServers((prev) => prev.map((s) => (s.id === selected.id ? { ...s, subscription_status: "trial", ban_reason: "" } : s)));
+      setServers((prev) =>
+        prev.map((s) =>
+          s.id === selected.id ? { ...s, subscription_status: "trial", ban_reason: "" } : s
+        )
+      );
       setSelected(null);
     } catch (e) {
-      toast.error("Failed to unban");
+      toast.error("Failed to unban server");
     }
   };
 
   const filtered = servers.filter((s) => {
     const matchFilter = filter === "all" || s.subscription_status === filter;
-    const matchSearch = !search || s.guild_name?.toLowerCase().includes(search.toLowerCase()) || s.owner_name?.toLowerCase().includes(search.toLowerCase());
+    const matchSearch =
+      !search ||
+      s.guild_name?.toLowerCase().includes(search.toLowerCase()) ||
+      s.guild_id?.toLowerCase().includes(search.toLowerCase());
     return matchFilter && matchSearch;
   });
 
@@ -152,7 +175,7 @@ export default function Servers() {
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
           <Input
-            placeholder="Search by guild or owner name..."
+            placeholder="Search by Guild Name or Guild ID..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="pl-10 np-bg-card border-np-border text-white placeholder:text-gray-600"
@@ -179,10 +202,11 @@ export default function Servers() {
             <thead>
               <tr className="border-b np-border text-gray-500">
                 <th className="text-left px-4 py-3 font-semibold">Guild Name</th>
-                <th className="text-left px-4 py-3 font-semibold">Owner</th>
-                <th className="text-left px-4 py-3 font-semibold">Plan</th>
+                <th className="text-left px-4 py-3 font-semibold">Guild ID</th>
+                <th className="text-left px-4 py-3 font-semibold">Plan Name</th>
                 <th className="text-left px-4 py-3 font-semibold">Status</th>
                 <th className="text-left px-4 py-3 font-semibold">Tournaments</th>
+                <th className="text-left px-4 py-3 font-semibold">Member Count</th>
                 <th className="text-left px-4 py-3 font-semibold">Last Active</th>
                 <th className="px-4 py-3"></th>
               </tr>
@@ -195,16 +219,21 @@ export default function Servers() {
                   className="border-b np-border cursor-pointer hover:np-bg-card-hover transition-colors"
                 >
                   <td className="px-4 py-3 font-medium text-white">{s.guild_name}</td>
-                  <td className="px-4 py-3 text-gray-400">{s.owner_name}</td>
+                  <td className="px-4 py-3 text-gray-400 font-mono text-xs">{s.guild_id}</td>
                   <td className="px-4 py-3 text-gray-300">{s.plan_name}</td>
-                  <td className="px-4 py-3"><StatusBadge status={s.subscription_status} /></td>
+                  <td className="px-4 py-3">
+                    <StatusBadge status={s.subscription_status} />
+                  </td>
                   <td className="px-4 py-3 text-gray-400">
                     <span className="text-white">{s.tournaments_used || 0}</span> / {s.tournament_limit || 0}
                   </td>
+                  <td className="px-4 py-3 text-gray-300">{(s.member_count || 0).toLocaleString()}</td>
                   <td className="px-4 py-3 text-gray-500 text-xs">
                     {s.last_active ? new Date(s.last_active).toLocaleDateString() : "—"}
                   </td>
-                  <td className="px-4 py-3"><ChevronRight className="w-4 h-4 text-gray-600" /></td>
+                  <td className="px-4 py-3">
+                    <ChevronRight className="w-4 h-4 text-gray-600" />
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -217,133 +246,211 @@ export default function Servers() {
 
       {/* Detail Modal */}
       <Dialog open={!!selected && !banModal && !upgradeModal} onOpenChange={(o) => !o && setSelected(null)}>
-        <DialogContent className="np-bg-card border-np-border text-white max-w-3xl max-h-[85vh] overflow-y-auto np-scroll">
+        <DialogContent className="np-bg-card border-np-border text-white max-w-4xl max-h-[85vh] overflow-y-auto np-scroll">
           {selected && (
-            <>
+            <div className="space-y-6">
               <DialogHeader>
-                <DialogTitle className="text-xl font-bold text-white">{selected.guild_name}</DialogTitle>
+                <DialogTitle className="text-xl font-bold text-white flex items-center justify-between">
+                  <span>{selected.guild_name} Details</span>
+                  <StatusBadge status={selected.subscription_status} />
+                </DialogTitle>
               </DialogHeader>
 
-              {/* Server Info */}
-              <div className="grid grid-cols-2 gap-4 p-4 np-bg-base rounded-lg border np-border">
-                <div><p className="text-xs text-gray-500">Guild ID</p><p className="text-sm text-white font-mono">{selected.guild_id}</p></div>
-                <div><p className="text-xs text-gray-500">Owner</p><p className="text-sm text-white">{selected.owner_name}</p></div>
-                <div><p className="text-xs text-gray-500">Plan</p><p className="text-sm np-text-gold font-semibold">{selected.plan_name}</p></div>
-                <div><p className="text-xs text-gray-500">Status</p><StatusBadge status={selected.subscription_status} /></div>
-                <div><p className="text-xs text-gray-500">Tournaments</p><p className="text-sm text-white">{selected.tournaments_used || 0} / {selected.tournament_limit || 0}</p></div>
-                <div><p className="text-xs text-gray-500">Members</p><p className="text-sm text-white">{selected.member_count || 0}</p></div>
-                {selected.ban_reason && <div className="col-span-2"><p className="text-xs text-gray-500">Ban Reason</p><p className="text-sm text-red-400">{selected.ban_reason}</p></div>}
+              {/* Grid Details */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-4 np-bg-base rounded-lg border np-border">
+                <div>
+                  <p className="text-xs text-gray-500">Guild ID</p>
+                  <p className="text-sm text-white font-mono">{selected.guild_id}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-gray-500">Owner Name (ID)</p>
+                  <p className="text-sm text-white">{selected.owner_name} <span className="text-xs text-gray-500 font-mono">({selected.owner_id || "—"})</span></p>
+                </div>
+                <div>
+                  <p className="text-xs text-gray-500">Plan</p>
+                  <p className="text-sm np-text-gold font-semibold">{selected.plan_name}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-gray-500">Tournaments Limit</p>
+                  <p className="text-sm text-white">{selected.tournaments_used || 0} / {selected.tournament_limit || 0}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-gray-500">Member Count</p>
+                  <p className="text-sm text-white">{(selected.member_count || 0).toLocaleString()}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-gray-500">Last Active</p>
+                  <p className="text-sm text-white">{selected.last_active ? new Date(selected.last_active).toLocaleString() : "—"}</p>
+                </div>
+                {selected.subscription_status === "banned" && (
+                  <div className="col-span-2">
+                    <p className="text-xs text-red-400">Ban Reason</p>
+                    <p className="text-sm text-red-300 italic">{selected.ban_reason || "No reason given"}</p>
+                  </div>
+                )}
               </div>
 
-              {/* Actions */}
-              <div className="flex flex-wrap gap-2">
+              {/* Tabs: Tournaments and Support Messages */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* Tournaments List */}
+                <div className="p-4 np-bg-base border np-border rounded-lg space-y-3">
+                  <h4 className="text-sm font-semibold text-white">Guild Tournaments ({detailData.tournaments.length})</h4>
+                  {detailData.loading ? (
+                    <p className="text-xs text-gray-500">Loading tournaments...</p>
+                  ) : detailData.tournaments.length === 0 ? (
+                    <p className="text-xs text-gray-500">No tournaments registered</p>
+                  ) : (
+                    <div className="space-y-2 max-h-60 overflow-y-auto np-scroll pr-1">
+                      {detailData.tournaments.map((t) => (
+                        <div key={t.id} className="p-2 rounded border np-border bg-black/20 flex flex-col gap-1">
+                          <div className="flex justify-between items-center">
+                            <span className="text-xs font-semibold text-white truncate max-w-[150px]">{t.name}</span>
+                            <StatusBadge status={t.status} />
+                          </div>
+                          <p className="text-[10px] text-gray-400">Game: {t.game} | Format: {t.format}</p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Support Messages List */}
+                <div className="p-4 np-bg-base border np-border rounded-lg space-y-3">
+                  <h4 className="text-sm font-semibold text-white">Support Messages ({detailData.messages.length})</h4>
+                  {detailData.loading ? (
+                    <p className="text-xs text-gray-500">Loading support messages...</p>
+                  ) : detailData.messages.length === 0 ? (
+                    <p className="text-xs text-gray-500">No support messages from this guild</p>
+                  ) : (
+                    <div className="space-y-2 max-h-60 overflow-y-auto np-scroll pr-1">
+                      {detailData.messages.map((m) => (
+                        <div key={m.id} className="p-2 rounded border np-border bg-black/20 flex flex-col gap-1">
+                          <p className="text-xs text-gray-200">{m.message}</p>
+                          <div className="flex justify-between text-[10px] text-gray-500">
+                            <span>Status: {m.status || "Open"}</span>
+                            <span>{m.created_date ? new Date(m.created_date).toLocaleDateString() : ""}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex flex-wrap gap-3 pt-4 border-t np-border">
+                <Button
+                  onClick={() => setUpgradeModal(true)}
+                  className="bg-emerald-600 text-white hover:bg-emerald-700 font-semibold"
+                >
+                  <ArrowUpCircle className="w-4 h-4 mr-2" /> Upgrade Plan
+                </Button>
+                <Button
+                  onClick={handleExtendTrial}
+                  className="bg-blue-600 text-white hover:bg-blue-700 font-semibold"
+                >
+                  <ShieldCheck className="w-4 h-4 mr-2" /> Extend Trial
+                </Button>
                 {selected.subscription_status === "banned" ? (
-                  <Button onClick={handleUnban} className="bg-emerald-600 hover:bg-emerald-700 text-white">
-                    <ShieldCheck className="w-4 h-4 mr-2" /> Unban Server
+                  <Button
+                    onClick={handleUnban}
+                    className="bg-gray-600 text-white hover:bg-gray-700 font-semibold"
+                  >
+                    <Gavel className="w-4 h-4 mr-2" /> Unban Server
                   </Button>
                 ) : (
-                  <>
-                    <Button onClick={handleAddTrial} variant="outline" className="border-np-border text-white hover:np-bg-card-hover">
-                      <ArrowUpCircle className="w-4 h-4 mr-2" /> Add 30-day Trial
-                    </Button>
-                    <Button onClick={() => setUpgradeModal(true)} className="np-bg-gold text-black hover:brightness-110">
-                      <ArrowUpCircle className="w-4 h-4 mr-2" /> Upgrade Plan
-                    </Button>
-                    <Button onClick={() => setBanModal(true)} variant="outline" className="border-red-700/50 text-red-400 hover:bg-red-900/20">
-                      <ShieldBan className="w-4 h-4 mr-2" /> Ban Server
-                    </Button>
-                  </>
+                  <Button
+                    onClick={() => setBanModal(true)}
+                    className="bg-red-600 text-white hover:bg-red-700 font-semibold"
+                  >
+                    <ShieldBan className="w-4 h-4 mr-2" /> Ban Server
+                  </Button>
                 )}
+                <Button
+                  variant="outline"
+                  onClick={() => setSelected(null)}
+                  className="border-gray-700 text-gray-300 hover:text-white"
+                >
+                  Close
+                </Button>
               </div>
-
-              {/* Tournaments */}
-              <div>
-                <h4 className="text-sm font-semibold text-white mb-2">Tournaments ({detailData.tournaments.length})</h4>
-                {detailData.loading ? (
-                  <p className="text-xs text-gray-500">Loading...</p>
-                ) : detailData.tournaments.length === 0 ? (
-                  <p className="text-xs text-gray-500">No tournaments</p>
-                ) : (
-                  <div className="space-y-2 max-h-40 overflow-y-auto np-scroll">
-                    {detailData.tournaments.map((t) => (
-                      <div key={t.id} className="flex items-center justify-between p-2 np-bg-base rounded border np-border text-xs">
-                        <span className="text-white">{t.name}</span>
-                        <StatusBadge status={t.status} />
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {/* Support Messages */}
-              <div>
-                <h4 className="text-sm font-semibold text-white mb-2">Support Messages ({detailData.messages.length})</h4>
-                {detailData.loading ? (
-                  <p className="text-xs text-gray-500">Loading...</p>
-                ) : detailData.messages.length === 0 ? (
-                  <p className="text-xs text-gray-500">No support messages</p>
-                ) : (
-                  <div className="space-y-2 max-h-40 overflow-y-auto np-scroll">
-                    {detailData.messages.map((m) => (
-                      <div key={m.id} className="flex items-center justify-between p-2 np-bg-base rounded border np-border text-xs">
-                        <span className="text-gray-300 truncate flex-1 mr-2">{m.message}</span>
-                        <StatusBadge status={m.status} />
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </>
+            </div>
           )}
         </DialogContent>
       </Dialog>
 
-      {/* Ban Modal */}
-      <Dialog open={banModal} onOpenChange={(o) => { setBanModal(o); if (!o) setBanReason(""); }}>
-        <DialogContent className="np-bg-card border-np-border text-white">
+      {/* Upgrade Plan Modal */}
+      <Dialog open={upgradeModal} onOpenChange={setUpgradeModal}>
+        <DialogContent className="np-bg-card border-np-border text-white max-w-md">
           <DialogHeader>
-            <DialogTitle className="text-lg font-bold text-white">Ban {selected?.guild_name}</DialogTitle>
+            <DialogTitle className="text-lg font-bold">Upgrade Plan for {selected?.guild_name}</DialogTitle>
           </DialogHeader>
-          <div>
-            <label className="text-xs text-gray-500 mb-1 block">Reason for banning</label>
-            <Textarea
-              value={banReason}
-              onChange={(e) => setBanReason(e.target.value)}
-              placeholder="Enter ban reason..."
-              className="np-bg-base border-np-border text-white"
-              rows={3}
-            />
-          </div>
-          <div className="flex gap-2 justify-end">
-            <Button variant="outline" onClick={() => setBanModal(false)} className="border-np-border text-white">Cancel</Button>
-            <Button onClick={handleBan} disabled={!banReason.trim()} className="bg-red-600 hover:bg-red-700 text-white">
-              <Gavel className="w-4 h-4 mr-2" /> Confirm Ban
-            </Button>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <label className="text-xs text-gray-400">Select Target Plan</label>
+              <Select value={upgradePlan} onValueChange={setUpgradePlan}>
+                <SelectTrigger className="w-full np-bg-base border-np-border text-white">
+                  <SelectValue placeholder="Choose plan" />
+                </SelectTrigger>
+                <SelectContent className="np-bg-card border-np-border">
+                  {plans.map((p) => (
+                    <SelectItem key={p.id} value={p.name}>
+                      {p.name} (Limit: {p.tournament_limit})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex gap-3 justify-end pt-4">
+              <Button
+                variant="outline"
+                onClick={() => setUpgradeModal(false)}
+                className="border-gray-700 text-gray-300"
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleUpgrade}
+                className="bg-emerald-600 text-white hover:bg-emerald-700"
+              >
+                Confirm Upgrade
+              </Button>
+            </div>
           </div>
         </DialogContent>
       </Dialog>
 
-      {/* Upgrade Modal */}
-      <Dialog open={upgradeModal} onOpenChange={setUpgradeModal}>
-        <DialogContent className="np-bg-card border-np-border text-white">
+      {/* Ban Modal */}
+      <Dialog open={banModal} onOpenChange={setBanModal}>
+        <DialogContent className="np-bg-card border-np-border text-white max-w-md">
           <DialogHeader>
-            <DialogTitle className="text-lg font-bold text-white">Upgrade {selected?.guild_name}</DialogTitle>
+            <DialogTitle className="text-lg font-bold text-red-400">Ban Server: {selected?.guild_name}</DialogTitle>
           </DialogHeader>
-          <div>
-            <label className="text-xs text-gray-500 mb-1 block">Select Plan</label>
-            <Select value={upgradePlan} onValueChange={setUpgradePlan}>
-              <SelectTrigger className="np-bg-base border-np-border text-white">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent className="np-bg-card border-np-border">
-                <SelectItem value="Basic">Basic</SelectItem>
-                <SelectItem value="Pro">Pro</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="flex gap-2 justify-end">
-            <Button variant="outline" onClick={() => setUpgradeModal(false)} className="border-np-border text-white">Cancel</Button>
-            <Button onClick={handleUpgrade} className="np-bg-gold text-black hover:brightness-110">Confirm Upgrade</Button>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <label className="text-xs text-gray-400">Reason for ban</label>
+              <Textarea
+                placeholder="Enter details reason..."
+                value={banReason}
+                onChange={(e) => setBanReason(e.target.value)}
+                className="np-bg-base border-np-border text-white"
+              />
+            </div>
+            <div className="flex gap-3 justify-end pt-4">
+              <Button
+                variant="outline"
+                onClick={() => setBanModal(false)}
+                className="border-gray-700 text-gray-300"
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleBan}
+                className="bg-red-600 text-white hover:bg-red-700"
+              >
+                Confirm Ban
+              </Button>
+            </div>
           </div>
         </DialogContent>
       </Dialog>
