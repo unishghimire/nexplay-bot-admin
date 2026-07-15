@@ -1,35 +1,17 @@
-import React, { createContext, useState, useContext, useEffect } from 'react';
-import { base44 } from '@/api/base44Client';
+import React, { createContext, useState, useContext } from 'react';
 
 const AuthContext = createContext();
 
+// Admin panel has NO login — it's a private URL known only to the owner.
+// We just pass isLoadingAuth=false, no errors, no redirects.
 export const AuthProvider = ({ children }) => {
-  const [isLoadingAuth, setIsLoadingAuth] = useState(true);
-  const [isLoadingPublicSettings, setIsLoadingPublicSettings] = useState(false);
-  const [authError, setAuthError] = useState(null);
-
-  useEffect(() => {
-    const checkAuth = async () => {
-      try {
-        const isAuth = await base44.auth.isAuthenticated();
-        if (!isAuth) {
-          setAuthError({ type: 'auth_required' });
-        }
-      } catch (e) {
-        setAuthError({ type: 'auth_required' });
-      } finally {
-        setIsLoadingAuth(false);
-      }
-    };
-    checkAuth();
-  }, []);
-
-  const navigateToLogin = () => {
-    base44.auth.redirectToLogin();
-  };
-
   return (
-    <AuthContext.Provider value={{ isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin }}>
+    <AuthContext.Provider value={{
+      isLoadingAuth: false,
+      isLoadingPublicSettings: false,
+      authError: null,
+      navigateToLogin: () => {},
+    }}>
       {children}
     </AuthContext.Provider>
   );
@@ -37,8 +19,6 @@ export const AuthProvider = ({ children }) => {
 
 export const useAuth = () => {
   const context = useContext(AuthContext);
-  if (!context) {
-    throw new Error('useAuth must be used within an AuthProvider');
-  }
+  if (!context) throw new Error('useAuth must be used within an AuthProvider');
   return context;
 };
