@@ -15,6 +15,8 @@ import PromoCodes from "@/pages/admin/PromoCodes";
 import Offers from "@/pages/admin/Offers";
 import Revenue from "@/pages/admin/Revenue";
 import Notifications from "@/pages/admin/Notifications";
+import Transactions from "@/pages/admin/Transactions";
+import PaymentMethods from "@/pages/admin/PaymentMethods";
 
 const AuthenticatedApp = () => {
   const { isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin } = useAuth();
@@ -51,6 +53,8 @@ const AuthenticatedApp = () => {
         <Route path="/offers" element={<Offers />} />
         <Route path="/revenue" element={<Revenue />} />
         <Route path="/notifications" element={<Notifications />} />
+        <Route path="/transactions" element={<Transactions />} />
+        <Route path="/payment-methods" element={<PaymentMethods />} />
       </Route>
       <Route path="*" element={<PageNotFound />} />
     </Routes>

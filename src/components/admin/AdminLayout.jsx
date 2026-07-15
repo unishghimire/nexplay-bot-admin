@@ -12,6 +12,8 @@ import {
   Trophy,
   Menu,
   X,
+  Receipt,
+  Wallet,
 } from "lucide-react";
 
 const navItems = [
@@ -21,7 +23,9 @@ const navItems = [
   { to: "/promo-codes", label: "Promo Codes", icon: Ticket },
   { to: "/offers", label: "Offers", icon: Tag },
   { to: "/revenue", label: "Revenue", icon: DollarSign },
-  { to: "/notifications", label: "Notifications", icon: Bell },
+  { to: "/notifications",   label: "Notifications",    icon: Bell },
+  { to: "/transactions",    label: "Transactions",      icon: Receipt },
+  { to: "/payment-methods", label: "Payment Methods",   icon: Wallet },
 ];
 
 export default function AdminLayout() {
