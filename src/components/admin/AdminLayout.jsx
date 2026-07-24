@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { Outlet, NavLink, useLocation } from "react-router-dom";
-import { base44 } from "@/api/base44Client";
+import { adminApi } from "@/lib/adminApi";
 import {
   LayoutDashboard,
   Server,
@@ -37,21 +37,18 @@ export default function AdminLayout() {
     let active = true;
     const load = async () => {
       try {
-        const items = await base44.entities.AdminNotification.filter(
-          { read_by_unish: false },
-          "-created_date",
-          100
-        );
-        if (active) setUnreadCount(items.length);
+        const d = await adminApi.notifications();
+        if (active) setUnreadCount((d.notifications || []).filter(n => !n.read_by_unish).length);
       } catch {
         /* noop */
       }
     };
     load();
-    const unsub = base44.entities.AdminNotification.subscribe(() => load());
+    // Poll every 30s for fresh notifications
+    const interval = setInterval(load, 30000);
     return () => {
       active = false;
-      unsub();
+      clearInterval(interval);
     };
   }, [location.pathname]);
 

@@ -1,5 +1,5 @@
 const ADMIN_API = "https://6a5226b5047f5c59d961130e.base44.app/api/apps/6a5226b5047f5c59d961130e/functions/adminApi";
-const ADMIN_KEY = "1212";
+const ADMIN_KEY = "nexplay-admin-2026";
 
 async function req(action, params = {}, body = null, method = "GET") {
   const url = new URL(ADMIN_API);
