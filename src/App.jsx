@@ -17,6 +17,7 @@ import Revenue from "@/pages/admin/Revenue";
 import Notifications from "@/pages/admin/Notifications";
 import Transactions from "@/pages/admin/Transactions";
 import PaymentMethods from "@/pages/admin/PaymentMethods";
+import BotStatus from "@/pages/admin/BotStatus";
 
 const AuthenticatedApp = () => {
   const { isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin } = useAuth();
@@ -47,6 +48,7 @@ const AuthenticatedApp = () => {
       {/* Add your page Route elements here */}
       <Route element={<AdminLayout />}>
         <Route path="/" element={<Dashboard />} />
+        <Route path="/bot-status" element={<BotStatus />} />
         <Route path="/servers" element={<Servers />} />
         <Route path="/plans" element={<Plans />} />
         <Route path="/promo-codes" element={<PromoCodes />} />

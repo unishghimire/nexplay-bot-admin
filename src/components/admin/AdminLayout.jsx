@@ -14,10 +14,12 @@ import {
   X,
   Receipt,
   Wallet,
+  Bot,
 } from "lucide-react";
 
 const navItems = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard },
+  { to: "/bot-status", label: "Bot Status", icon: Bot },
   { to: "/servers", label: "Servers", icon: Server },
   { to: "/plans", label: "Plans", icon: CreditCard },
   { to: "/promo-codes", label: "Promo Codes", icon: Ticket },

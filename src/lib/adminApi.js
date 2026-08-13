@@ -18,16 +18,23 @@ async function req(action, params = {}, body = null, method = "GET") {
 
 export const adminApi = {
   // GET
-  dashboard:       ()         => req("dashboard"),
-  servers:         ()         => req("servers"),
-  serverDetail:    (guild_id) => req("server_detail", { guild_id }),
-  plans:           ()         => req("plans"),
-  transactions:    (status)   => req("transactions", status && status !== "all" ? { status } : {}),
-  paymentMethods:  ()         => req("payment_methods"),
-  notifications:   ()         => req("notifications"),
-  promoCodes:      ()         => req("promo_codes"),
-  offers:          ()         => req("offers"),
-  revenue:         ()         => req("revenue"),
+  dashboard:        ()         => req("dashboard"),
+  servers:          ()         => req("servers"),
+  serverDetail:     (guild_id) => req("server_detail", { guild_id }),
+  plans:            ()         => req("plans"),
+  transactions:     (status)   => req("transactions", status && status !== "all" ? { status } : {}),
+  paymentMethods:   ()         => req("payment_methods"),
+  notifications:    ()         => req("notifications"),
+  promoCodes:       ()         => req("promo_codes"),
+  offers:           ()         => req("offers"),
+  revenue:          ()         => req("revenue"),
+  botStatus:        ()         => req("bot_status"),
+  allTournaments:   ()         => req("all_tournaments"),
+  allMatches:       ()         => req("all_matches"),
+
+  // Broadcast & Notifications
+  broadcast:          (data) => req("broadcast", {}, data),
+  createNotification: (data) => req("create_notification", {}, data),
 
   // Server actions
   updateServer:    (data)            => req("update_server",    {}, data),
@@ -47,7 +54,7 @@ export const adminApi = {
   // Plan CRUD
   createPlan:  (data)       => req("create_plan",  {}, data),
   updatePlan:  (id, data)   => req("update_plan",  {}, { id, ...data }),
-  deletePlan:  (id)         => req("delete_plan",  {}, { id }),
+  deletePlan:  (id)        => req("delete_plan",  {}, { id }),
 
   // PaymentMethod CRUD
   createPM:   (data)      => req("create_payment_method", {}, data),

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { adminApi } from "@/lib/adminApi";
-import { Server, Activity, Clock, DollarSign, Trophy, Bell, ShieldBan, CreditCard, AlertCircle, RefreshCw, TrendingUp, Users } from "lucide-react";
+import { Server, Activity, Clock, DollarSign, Trophy, Bell, ShieldBan, CreditCard, AlertCircle, RefreshCw, TrendingUp, Users, Bot, Wifi, Cpu, Music, Zap } from "lucide-react";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from "recharts";
 
 const PLAN_COLORS = { "Free Trial": "#6b7280", "Starter": "#6366f1", "Pro": "#a855f7", "Elite": "#f59e0b" };
@@ -56,6 +56,52 @@ export default function Dashboard() {
           <RefreshCw className="w-4 h-4"/> Refresh
         </button>
       </div>
+
+      {/* Bot Status Widget */}
+      {data.bot_status && (
+        <div onClick={() => navigate("/bot-status")} className="cursor-pointer np-bg-card border np-border rounded-xl p-5 hover:border-yellow-500/30 transition-colors">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <Bot className="w-5 h-5 np-text-gold" />
+              <h2 className="text-white font-semibold">Bot Status</h2>
+              {data.bot_status.is_stale ? (
+                <span className="flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-bold bg-red-500/10 text-red-400 border border-red-500/20">OFFLINE</span>
+              ) : (
+                <span className="flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"/>LIVE
+                </span>
+              )}
+            </div>
+            <span className="text-xs text-gray-500">Click for details →</span>
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
+            <div className="flex items-center gap-2">
+              <Wifi className="w-4 h-4 text-gray-500"/>
+              <div><p className="text-gray-500 text-xs">Latency</p><p className={`text-sm font-bold ${data.bot_status.latency_ms < 100 ? 'text-emerald-400' : data.bot_status.latency_ms < 200 ? 'text-yellow-400' : 'text-red-400'}`}>{data.bot_status.latency_ms}ms</p></div>
+            </div>
+            <div className="flex items-center gap-2">
+              <Server className="w-4 h-4 text-gray-500"/>
+              <div><p className="text-gray-500 text-xs">Guilds</p><p className="text-sm font-bold text-white">{data.bot_status.guild_count}</p></div>
+            </div>
+            <div className="flex items-center gap-2">
+              <Users className="w-4 h-4 text-gray-500"/>
+              <div><p className="text-gray-500 text-xs">Members</p><p className="text-sm font-bold text-white">{data.bot_status.total_members?.toLocaleString()}</p></div>
+            </div>
+            <div className="flex items-center gap-2">
+              <Music className="w-4 h-4 text-gray-500"/>
+              <div><p className="text-gray-500 text-xs">Voice/247</p><p className="text-sm font-bold text-white">{data.bot_status.voice_connections}/{data.bot_status.music_247_count}</p></div>
+            </div>
+            <div className="flex items-center gap-2">
+              <Trophy className="w-4 h-4 text-gray-500"/>
+              <div><p className="text-gray-500 text-xs">Active Tourneys</p><p className="text-sm font-bold text-white">{data.bot_status.active_tournaments}</p></div>
+            </div>
+            <div className="flex items-center gap-2">
+              <Clock className="w-4 h-4 text-gray-500"/>
+              <div><p className="text-gray-500 text-xs">Uptime</p><p className="text-sm font-bold np-text-gold">{data.bot_status.uptime}</p></div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Pending banner */}
       {stats.pending_transactions > 0 && (
